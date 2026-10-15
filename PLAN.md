@@ -825,6 +825,8 @@ authorized by this revision.
 - [x] Scope disclosure checks to logs, diagnostics and relay-generated
   errors; preserve protocol-authorized forwarding of upstream bodies and
   headers (§4.3, §5, §10).
+- [x] Keep reusable implementation packages under `internal/`, with the
+  executable entry points in `cmd/relay/` and `test/load/` (§11).
 
 Validation of these documentation fixes: the five required Go commands were
 attempted in order but could not start because `gofmt`, `go`, `staticcheck`

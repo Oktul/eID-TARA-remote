@@ -22,9 +22,10 @@ public issue.
 Follow [Effective Go], [Go Code Review Comments] and the [Google Go Style
 Guide]; where they differ from this file, this file wins. On top of them:
 
-- **Packages** follow `PLAN.md` §11, all under `internal/`. No `util`,
-  `common` or `helpers`. No package-level mutable state and no `init`.
-  Dependencies are passed in explicitly.
+- **Packages** follow `PLAN.md` §11: reusable implementation packages live
+  under `internal/`; executable entry points live in `cmd/relay/` and
+  `test/load/`. No `util`, `common` or `helpers`. No package-level mutable
+  state and no `init`. Dependencies are passed in explicitly.
 - **Names** use the plan's terms (FIT, snapshot, route, upstream) and Go
   initialisms (`ID`, `URL`, `JWKS`, `FIT`). Short names in short scopes,
   descriptive ones at package level. No `Manager`, `Service` or `Helper`
