@@ -8,8 +8,10 @@ Hard constraints (from `PLAN.md`; change them only when the owner says so):
 
 - **Stay on the plan's phase.** Do not build ahead of the phase the owner
   asked for (`PLAN.md` §14).
-- **One dependency:** `github.com/go-jose/go-jose/v4`. Anything else needs
-  the owner's approval and a reason recorded in `PLAN.md` §7.
+- **No dependencies:** the Go standard library only (`PLAN.md` D2,
+  2026-10-15). FITs are verified with `crypto/rsa`, not a JOSE library
+  (`PLAN.md` §4.4). A third-party module needs the owner's approval and a
+  reason recorded in `PLAN.md` §7.
 - **Fail closed.** No request reaches the upstream without a valid FIT, an
   allowed route and the site and environment pins (`PLAN.md` §4).
 - **Never log** request or response bodies, query strings, header values,

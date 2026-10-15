@@ -27,9 +27,9 @@ Forge app's `PLAN.md` §4.7 (2026-09-29). Where it changes the requirements,
 | #   | Decision                                                                                                               | Why                                                                                                                                                                                                                                            |
 | --- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1  | **Customers run relays. We host none in v1.**                                                                          | Removes the relay key pair, end-to-end JWE, fingerprint pinning and key rotation from §4.7. No processor chain through a cloud provider: the customer runs the hop and is the controller. An Oktul-hosted relay can come later as protocol v2. |
-| D2  | **Go, its standard library and one dependency, `github.com/go-jose/go-jose/v4`.**                                      | §11 of the requirements: the standard library covers the HTTPS server and client, JSON, RSA, timeouts and cancellation; one static binary; Go 1 compatibility keeps old code building on new toolchains. Details in §7.                        |
+| D2  | **Go and its standard library only. No third-party modules** (2026-10-15; was `go-jose/v4`).                           | The standard library covers HTTPS, JSON, RSA, timeouts and cancellation. The FIT is always RS256, so `crypto/rsa` checks it in a few lines, and every update becomes a Go patch, which ships automatically (D4). §7.                           |
 | D3  | **Separate repository `eID-forge-remote`, private at first.** Published under EUPL-1.2 before the first customer.      | Different language, toolchain and release lifecycle from the Forge app, which stays closed. Customers must be able to pull the image without credentials and audit the code they run.                                                          |
-| D4  | **CI on GitHub Actions. Go patch releases ship automatically;** every other change needs a human merge (2026-10-15).   | Go's `net/http` and `crypto/tls` get security fixes several times a year. A Go patch release carries only such fixes and the tests pin the protocol, so it ships unreviewed. `go-jose`, Go minors and Actions can change more. §12.            |
+| D4  | **CI on GitHub Actions. Go patch releases ship automatically;** every other change needs a human merge (2026-10-15).   | Go's `net/http` and `crypto/tls` get security fixes several times a year. A Go patch release carries only such fixes and the tests pin the protocol, so it ships unreviewed. Go minors and Actions can change more. §12.                       |
 | D5  | **Every relay is pinned to the customer's site (`cloudId`) and Forge environment. Both are required settings.**        | The FIT's audience is our app ID, shared by every install. Without a pin, another site's admin could point their install at this relay and use the customer's IP and credential.                                                               |
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Forge reads `401` from a remote as a failed FIT check and treats `3xx` and other non-2xx answers as failures. An upstream `401 invalid_client` must not look like a FIT failure.                                                               |
@@ -129,10 +129,22 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 - A token with `icLabel` (Isolated Cloud) is refused: its keys live at
   another JWKS URL, and we do not support Isolated Cloud.
 - Other claims are ignored, so new claims never break an old relay (A-5).
-- **The library handles token mechanics; the relay enforces its policy.**
-  `go-jose` parses the JWS and checks the signature with an explicit
-  algorithm list. The relay checks each claim itself, and tests cover every
-  failure. Library defaults never define the contract.
+- **The relay does the token mechanics itself, with the standard library**
+  (D2, 2026-10-15). It supports exactly one form, so there is nothing to
+  negotiate:
+  1. the token is at most 8 KiB (a named constant) and splits on `.` into
+     exactly three non-empty parts;
+  2. the header is strict base64url (no padding) and JSON. `alg` must be
+     exactly `RS256` and `kid` must be present. Any `crit`, `jku`, `jwk`,
+     `x5u`, `x5c` or `zip` member is refused, and keys only ever come from
+     the cache (§4.5);
+  3. the signature is checked with `crypto/rsa.VerifyPKCS1v15` over the
+     SHA-256 of the first two parts exactly as received;
+  4. only after a valid signature is the payload decoded and each claim
+     checked. `exp` and `nbf` must be JSON numbers.
+
+  Tests cover every failure (§13), including a fuzz test of the parser.
+  No default of any library defines the contract.
 - The response never says which check failed. The log does (`auth_reason`,
   for example `audience` or `cloud_id`), which is what an operator needs.
 
@@ -142,8 +154,11 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   with backoff, refresh every 6 h, keep the last good keys, and refresh on an
   unknown `kid` at most once a minute.
 - Concurrent requests that meet the same unknown `kid` share one refresh.
-- Only RSA keys usable for RS256 signatures are kept; at most 20 keys; the
-  JWKS response is capped at 64 KiB and the fetch at 10 s.
+- The relay parses the JWKS itself with `encoding/json`. It keeps only keys
+  with `kty: RSA`, `use` absent or `sig`, `alg` absent or `RS256`, a `kid`,
+  and a modulus of at least 2048 bits. Others are skipped with a log line.
+  At most 20 keys are kept; the JWKS response is capped at 64 KiB and the
+  fetch at 10 s.
 - The JWKS URL must be HTTPS. Default:
   `https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json`.
 
@@ -204,9 +219,19 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 - **HTTP:** standard-library `net/http` on both sides, no framework.
   HTTP/2 is off inbound and outbound: the reverse proxy talks HTTP/1.1 anyway,
   and this removes a class of recent HTTP/2 vulnerabilities.
-- **JOSE:** `go-jose/v4` for JWS parsing, signature checks and JWK parsing.
-  It has no further module dependencies. It is the only dependency; another
-  one needs the owner's approval and a reason recorded here (S-1).
+- **JOSE: no library** (owner, 2026-10-15; replaces `go-jose/v4`). The
+  relay verifies FITs and parses the JWKS with `crypto/rsa`,
+  `crypto/sha256`, `encoding/base64` and `encoding/json` (§4.4, §4.5),
+  in `internal/fit/`, about 150 lines.
+  - **Why:** the relay needs one algorithm out of the dozens `go-jose`
+    supports, and `go-jose` has had advisories of its own (in 2025, a
+    denial of service in its compact-token parsing). Without it, every
+    update is a Go patch, which ships automatically (D4).
+  - **Cost:** we own security-critical parsing code. This is offset by the
+    attack tests and the fuzz test in §13, and by the security review in
+    Phase 4.
+- **Dependencies: none.** `go.mod` lists no modules. Adding one needs the
+  owner's approval and a reason recorded here (S-1).
 - **Logging:** `log/slog`, JSON to stdout.
 - **Image:**
   - multi-stage build;
@@ -226,6 +251,9 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
     cold start are worse. Its one advantage is that the team knows it.
   - **Rust:** a credible second choice, but the HTTP stack is assembled from
     many crates, which works against S-1.
+  - **`go-jose/v4`** (the choice until 2026-10-15): well reviewed and
+    without further dependencies, but it is the only part of the relay that
+    would need a human-reviewed update. See **JOSE** above.
   - **Envoy or nginx with JWT plugins:** too much configuration surface and
     frequent security releases. The error codes and the site pin would need
     scripting, and open-source nginx has no JWT support.
@@ -320,7 +348,7 @@ test/load/            small load generator for the acceptance runs (no dependenc
 deploy/               compose.yaml, kubernetes/
 docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
 .github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml
-Dockerfile, go.mod, go.sum, AGENTS.md, PLAN.md
+Dockerfile, go.mod, AGENTS.md, PLAN.md   (no go.sum: there are no modules)
 ```
 
 `LICENSE` (EUPL-1.2) and `SECURITY.md` are added when the repository is
@@ -339,12 +367,12 @@ would flag the old Go version. Instead:
 | ---------------------------------------------- | ------------------------------------------------------------------------------- |
 | New Go patch release, or a new builder digest  | **Fully automatic:** `go-patch.yml` checks, commits, tags and releases          |
 | New Go minor release                           | A pull request from `go-patch.yml`, merged by a person                          |
-| `go-jose` update                               | A Dependabot pull request, merged by a person: it is the code that checks a FIT |
 | GitHub Actions update                          | A Dependabot pull request, merged by a person: actions run in the signing job   |
 
 A Go patch release contains only security and critical fixes, and the tests
 pin every response code, header and setting of the protocol, so it can ship
-without review. The other three can change behaviour or the supply chain.
+without review. The other two can change behaviour or the supply chain. The
+relay has no third-party modules (D2), so there are no module updates.
 
 **Rule:** a patch release (`X.Y.Z` → `X.Y.Z+1`) never changes an endpoint,
 response code, header or setting. This is what makes the floating `:X.Y` tag
@@ -390,11 +418,11 @@ below safe to follow automatically.
 - **`weekly.yml`, scheduled and manual:** `govulncheck` on `main` and on the
   latest release's binary. A failure emails the owner through GitHub
   notifications. A reachable vulnerability that a newer Go patch fixes is
-  already handled by `go-patch.yml`. One in `go-jose`, or one that needs a
-  new Go minor, is the owner's to merge and tag.
-- **Dependabot**, monthly, plus its security updates as they appear: Go
-  modules (`go-jose`) and GitHub Actions. Never merged automatically. The
-  builder image belongs to `go-patch.yml`, not Dependabot.
+  already handled by `go-patch.yml`. One that needs a new Go minor is the
+  owner's to merge and tag.
+- **Dependabot**, monthly, plus its security updates as they appear: GitHub
+  Actions only, since there are no Go modules. Never merged automatically.
+  The builder image belongs to `go-patch.yml`, not Dependabot.
 - **Hygiene:** actions pinned by commit SHA; minimal workflow permissions
   (`contents: read`; releases also `packages: write`, `id-token: write`;
   `go-patch.yml` also `contents: write`, `issues: write` and
@@ -418,7 +446,7 @@ below safe to follow automatically.
     previous major for 12 months after a new one;
   - a rebuild at least once a year; a Go patch release automatically within
     a day of Go publishing it; and within 7 days of a reachable critical or
-    high fix that needs a person (`go-jose`, or a new Go minor);
+    high fix that needs a new Go minor;
   - customers learn of upgrades from the release notes and from the admin
     page, which compares `/relay/v1/info` with the minimum version the Forge
     app expects.
@@ -429,7 +457,15 @@ below safe to follow automatically.
   - **FIT:** every failure in requirements §12, plus wrong environment, wrong
     site, `icLabel`, missing `kid`, `alg: none`, HS256 signed with the RSA
     public key as the secret, and a tampered payload. All return the same
-    `401`.
+    `401`. Because the parser is our own (D2), also: two or four parts,
+    empty parts, padded or non-URL base64, a token over 8 KiB, a header with
+    `crit`, `jku`, `jwk`, `x5u`, `x5c` or `zip`, an unknown `kid`, a key
+    under 2048 bits, `exp` as a string, and a valid signature from a
+    different key with the same `kid`.
+  - **Fuzz:** a Go fuzz test (`go test -fuzz`, standard library) feeds the
+    token parser arbitrary input and must never panic or accept a token
+    without a valid signature. CI runs its seed corpus with the unit tests;
+    a longer run (at least an hour) happens before v1.0.0.
   - **Keys:** unreachable at startup, rotation, the one-a-minute limit, last
     good keys kept, and one shared refresh.
   - **Forwarding:** route allowlist, path tricks, header filtering, the
@@ -441,7 +477,8 @@ below safe to follow automatically.
   - a 72-hour soak on a VM;
   - killing the process gives a healthy restart within 10 s;
   - SIGTERM lets in-flight requests finish;
-  - an image scan (Trivy or Grype) shows only the binary and `go-jose`;
+  - an image scan (Trivy or Grype) shows only the Go binary and the Go
+    standard library, no third-party modules;
   - amd64 and arm64 both run from `deploy/compose.yaml` unchanged.
 - **End to end with the Forge app:**
   - a TARA demo login through a relay (the demo accepts any IP, so this
@@ -515,7 +552,8 @@ required. This plan takes from each:
   - the memory budget check at startup (1 MB defaults would have used about
     100 MB on payloads alone);
   - checking the Forge remote timeout per invocation path;
-  - "the library handles mechanics, the relay enforces policy";
+  - "the library handles mechanics, the relay enforces policy" (superseded
+    on 2026-10-15: there is no library, and the relay does both, D2);
   - keeping protocol longevity apart from the security-update cadence.
 - **New after checking Forge's docs:**
   - pin on `cloudId` rather than `installationId`, because the installation
@@ -523,3 +561,7 @@ required. This plan takes from each:
   - refuse `icLabel`;
   - use `x-b3-traceid` as the request ID;
   - D7, because Forge treats `401` and non-2xx answers specially.
+- **Later on 2026-10-15, by the owner:**
+  - Go patch releases ship automatically (D4, §12);
+  - `go-jose` dropped for standard-library RS256 verification, so the relay
+    has no third-party modules (D2, §7).
