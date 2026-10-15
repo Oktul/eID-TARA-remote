@@ -29,7 +29,7 @@ Forge app's `PLAN.md` §4.7 (2026-09-29). Where it changes the requirements,
 | D1  | **Customers run relays. We host none in v1.**                                                                          | Removes the relay key pair, end-to-end JWE, fingerprint pinning and key rotation from §4.7. No processor chain through a cloud provider: the customer runs the hop and is the controller. An Oktul-hosted relay can come later as protocol v2. |
 | D2  | **Go, its standard library and one dependency, `github.com/go-jose/go-jose/v4`.**                                      | §11 of the requirements: the standard library covers the HTTPS server and client, JSON, RSA, timeouts and cancellation; one static binary; Go 1 compatibility keeps old code building on new toolchains. Details in §7.                        |
 | D3  | **Separate repository `eID-forge-remote`, private at first.** Published under EUPL-1.2 before the first customer.      | Different language, toolchain and release lifecycle from the Forge app, which stays closed. Customers must be able to pull the image without credentials and audit the code they run.                                                          |
-| D4  | **CI on GitHub Actions:** checks on every push, releases from tags, a weekly vulnerability scan.                       | The protocol is built once; the binary is not. Go's `net/http` and `crypto/tls` get security fixes several times a year, and only a scheduled scan notices one that reaches the relay.                                                         |
+| D4  | **CI on GitHub Actions. Go patch releases ship automatically;** every other change needs a human merge (2026-10-15).   | Go's `net/http` and `crypto/tls` get security fixes several times a year. A Go patch release carries only such fixes and the tests pin the protocol, so it ships unreviewed. `go-jose`, Go minors and Actions can change more. §12.            |
 | D5  | **Every relay is pinned to the customer's site (`cloudId`) and Forge environment. Both are required settings.**        | The FIT's audience is our app ID, shared by every install. Without a pin, another site's admin could point their install at this relay and use the customer's IP and credential.                                                               |
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Forge reads `401` from a remote as a failed FIT check and treats `3xx` and other non-2xx answers as failures. An upstream `401 invalid_client` must not look like a FIT failure.                                                               |
@@ -319,7 +319,7 @@ internal/server/      HTTP server, middleware (request ID, recover, limiter, log
 test/load/            small load generator for the acceptance runs (no dependencies)
 deploy/               compose.yaml, kubernetes/
 docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
-.github/workflows/    ci.yml, release.yml, weekly.yml
+.github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml
 Dockerfile, go.mod, go.sum, AGENTS.md, PLAN.md
 ```
 
@@ -329,6 +329,27 @@ public: no secrets, keys, customer names or internal hostnames.
 
 ## 12. CI and releases
 
+**Update model (owner, 2026-10-15, D4).** Building once and never updating
+was considered and rejected: the relay parses headers and a JWT from callers
+before it knows who they are, its frozen CA bundle would stop matching the
+provider's certificates within a few years, and customers' image scanners
+would flag the old Go version. Instead:
+
+| Change                                         | How it ships                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| New Go patch release, or a new builder digest  | **Fully automatic:** `go-patch.yml` checks, commits, tags and releases          |
+| New Go minor release                           | A pull request from `go-patch.yml`, merged by a person                          |
+| `go-jose` update                               | A Dependabot pull request, merged by a person: it is the code that checks a FIT |
+| GitHub Actions update                          | A Dependabot pull request, merged by a person: actions run in the signing job   |
+
+A Go patch release contains only security and critical fixes, and the tests
+pin every response code, header and setting of the protocol, so it can ship
+without review. The other three can change behaviour or the supply chain.
+
+**Rule:** a patch release (`X.Y.Z` → `X.Y.Z+1`) never changes an endpoint,
+response code, header or setting. This is what makes the floating `:X.Y` tag
+below safe to follow automatically.
+
 - **`ci.yml`, on every push and pull request:**
   - `gofmt` check, `go vet`, `staticcheck` and `go test -race`;
   - `govulncheck ./...`;
@@ -336,31 +357,68 @@ public: no secrets, keys, customer names or internal hostnames.
     accounts);
   - a Docker build with a smoke test: the container starts read-only as a
     non-root user, `/livez` answers `200`, `/readyz` answers `503` while the
-    JWKS URL is unreachable, and a bad setting exits with its name.
-- **`release.yml`, on a `vX.Y.Z` tag:**
+    JWKS URL is unreachable, and a bad setting exits with its name;
+  - a check that the Go version in `go.mod`'s `toolchain` line and the
+    builder image tag in the `Dockerfile` are the same.
+- **`release.yml`, on a `vX.Y.Z` tag, and callable from `go-patch.yml`**
+  (`workflow_call`, because a tag pushed with a workflow's own token does not
+  start other workflows):
   - the same checks, then `buildx` for amd64 and arm64;
-  - push to `ghcr.io/<owner>/eid-forge-remote:X.Y.Z` (also `:X.Y`). No
-    `latest` in the docs (S-4);
+  - push to `ghcr.io/<owner>/eid-forge-remote:X.Y.Z` and move the floating
+    `:X.Y` tag to it. No `latest` in the docs (S-4);
   - SBOM and provenance attestations, and cosign keyless signing with
     GitHub's OIDC token (S-5);
   - `govulncheck -mode=binary` on the built binaries;
   - a GitHub release whose notes say whether the upgrade is **required,
-    recommended or optional**, and why (V-6).
+    recommended or optional**, and why (V-6). A person writes them for a
+    tagged release. For an automatic one they are generated: `recommended`
+    when `govulncheck` found a reachable vulnerability that the new Go
+    fixes, otherwise `optional`, with links to Go's release notes. Only the
+    owner marks a release `required`, by editing its notes.
+- **`go-patch.yml`, daily and manual:**
+  - reads Go's releases from `https://go.dev/dl/?mode=json` and the digest of
+    the matching official `golang` image;
+  - for a new patch of the pinned Go minor, or a new image digest for the
+    same Go version: updates `go.mod` and the `Dockerfile` together, runs
+    every `ci.yml` check on the change, and only if all pass commits to
+    `main`, tags the next patch version and calls `release.yml`;
+  - when a check fails it stops, leaves `main` untouched and opens an issue;
+  - for a new Go minor it opens a pull request instead;
+  - it does not need branch protection, which GitHub Free does not offer for
+    private repositories, because it runs the checks itself before
+    committing.
 - **`weekly.yml`, scheduled and manual:** `govulncheck` on `main` and on the
   latest release's binary. A failure emails the owner through GitHub
-  notifications. A vulnerability that reaches the relay means a patch
-  release: raise the Go version (a one-line change) and tag.
-- **Dependabot**, monthly: Go modules, GitHub Actions and the builder image
-  digest.
+  notifications. A reachable vulnerability that a newer Go patch fixes is
+  already handled by `go-patch.yml`. One in `go-jose`, or one that needs a
+  new Go minor, is the owner's to merge and tag.
+- **Dependabot**, monthly, plus its security updates as they appear: Go
+  modules (`go-jose`) and GitHub Actions. Never merged automatically. The
+  builder image belongs to `go-patch.yml`, not Dependabot.
 - **Hygiene:** actions pinned by commit SHA; minimal workflow permissions
-  (`contents: read`; releases also `packages: write`, `id-token: write`).
-- **Cost:** a few minutes per run, well within GitHub Free's 2,000 minutes a
-  month for private repositories.
+  (`contents: read`; releases also `packages: write`, `id-token: write`;
+  `go-patch.yml` also `contents: write`, `issues: write` and
+  `pull-requests: write`).
+- **Schedules:** GitHub disables scheduled workflows in a public repository
+  after 60 days without activity. The automatic commits usually prevent
+  that; after publication, check that both schedules are still enabled.
+- **Cost:** a few minutes per run, plus under a minute a day for
+  `go-patch.yml`, well within GitHub Free's 2,000 minutes a month for private
+  repositories.
+- **Customers choose how they upgrade** (`docs/SETUP.md`):
+  - **pinned** to `:X.Y.Z`, the default in the deploy files: they upgrade by
+    hand after reading the release notes;
+  - **automatic patches**, opt-in: follow `:X.Y` with Watchtower (Docker) or
+    `imagePullPolicy: Always` and a scheduled rollout restart (Kubernetes).
+    By the rule above, this never brings a protocol or setting change. A new
+    minor still needs a manual tag change, which the admin page prompts
+    for.
 - **Support policy** (`docs/SUPPORT.md`, V-5, M-2):
   - the newest minor release of the current major is supported, and the
     previous major for 12 months after a new one;
-  - a rebuild at least once a year, and within 7 days of a reachable
-    critical or high fix in Go's HTTP or TLS code;
+  - a rebuild at least once a year; a Go patch release automatically within
+    a day of Go publishing it; and within 7 days of a reachable critical or
+    high fix that needs a person (`go-jose`, or a new Go minor);
   - customers learn of upgrades from the release notes and from the admin
     page, which compares `/relay/v1/info` with the minimum version the Forge
     app expects.
@@ -408,7 +466,7 @@ public: no secrets, keys, customer names or internal hostnames.
 
 1. **Relay core** (this repository): config, FIT and keys, forwarding,
    errors, health and logs, with unit tests. Tag `v0.1.0`.
-2. **Packaging and CI:** Dockerfile, deploy files, `docs/`, the three
+2. **Packaging and CI:** Dockerfile, deploy files, `docs/`, the four
    workflows, and a signed multi-arch release.
 3. **Forge integration** (Forge app):
    - the remote;
