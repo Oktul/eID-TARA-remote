@@ -139,7 +139,9 @@ Every change is reviewed against this list before it reaches `main`.
 1. It implements a `PLAN.md` rule for the current phase, and no more.
 2. Every path to "allow" is reachable only after every required check.
 3. Every input is bounded and every limit named.
-4. No untrusted data or secret can reach a log line or response.
+4. Logs, diagnostics and relay-generated errors expose no raw untrusted
+   input or secrets. Responses forward only the upstream body and headers
+   permitted by `PLAN.md` §4.3 and §5; local responses follow §4.
 5. Each failure case has a test that would fail without the check.
 6. Goroutines have an owner and an exit; `-race` passes; cancellation works.
 7. The protocol in `PLAN.md` §4 is unchanged, or §4.6 was followed.

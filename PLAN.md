@@ -820,6 +820,19 @@ authorized by this revision.
 - [ ] Record Phase 1 contract/source checks and Phase 2 release failure tests.
 - [ ] Record measured acceptance results, soak and security review before v1.
 
+**Code-convention review fixes (owner-approved, 2026-10-15):**
+
+- [x] Scope disclosure checks to logs, diagnostics and relay-generated
+  errors; preserve protocol-authorized forwarding of upstream bodies and
+  headers (§4.3, §5, §10).
+
+Validation of these documentation fixes: the five required Go commands were
+attempted in order but could not start because `gofmt`, `go`, `staticcheck`
+and `govulncheck` are unavailable. There is still no Go source or `go.mod`;
+no passing source-check result is claimed.
+The owner approved documentation-only commits with this limitation on
+2026-10-15; the Go checks remain mandatory once source and tools exist.
+
 Documentation validation for this revision: the required `gofmt -w .`,
 `go vet ./...`, `staticcheck ./...`, `go test -race ./...` and
 `govulncheck ./...` commands were attempted in order but could not start
