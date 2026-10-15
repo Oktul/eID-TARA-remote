@@ -33,8 +33,11 @@ Guide]; where they differ from this file, this file wins. On top of them:
 - **Interfaces** are declared by the consumer, with the fewest methods it
   needs, and only when there are two implementations. A test seam counts as
   one (the clock and the JWKS fetcher, `PLAN.md` §13).
-- **`context.Context`** is the first parameter of anything that does I/O or
-  waits, and is never stored in a struct.
+- **`context.Context`** is the first parameter of project-defined functions
+  that do I/O or wait, and is never stored in a struct. Methods implementing
+  standard-library interfaces keep their required signatures (for example,
+  `ServeHTTP` and `Read`); propagate cancellation through `r.Context()` or
+  the underlying operation.
 - **Goroutines** belong to a component that starts and stops them and
   documents how each one exits. Handlers start none (`PLAN.md` §6, R-6).
   Shared state is an immutable snapshot behind `atomic.Pointer`, or a mutex

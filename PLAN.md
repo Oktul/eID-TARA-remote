@@ -827,6 +827,9 @@ authorized by this revision.
   headers (§4.3, §5, §10).
 - [x] Keep reusable implementation packages under `internal/`, with the
   executable entry points in `cmd/relay/` and `test/load/` (§11).
+- [x] Apply context-first to project-defined I/O and waiting functions;
+  preserve standard-library interface signatures and propagate cancellation
+  through the request or underlying operation (§6).
 
 Validation of these documentation fixes: the five required Go commands were
 attempted in order but could not start because `gofmt`, `go`, `staticcheck`
