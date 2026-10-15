@@ -41,6 +41,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Forge reads `401` from a remote as a failed FIT check and treats `3xx` and other non-2xx answers as failures. An upstream `401 invalid_client` must not look like a FIT failure.                                                               |
 | D8  | **Defaults sized for token calls:** 10 s upstream timeout, 64 KiB request and response limits.                         | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Also keeps the memory budget far below 128 MB (§6).                                                                                           |
+| D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
 
 ## 3. Request flow
 
@@ -513,7 +514,7 @@ test/load/            small load generator for the acceptance runs (no dependenc
 deploy/               compose.yaml, kubernetes/
 docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
 .github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml
-Dockerfile, go.mod, AGENTS.md, PLAN.md   (no go.sum: there are no modules)
+Dockerfile, go.mod, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
 ```
 
 `LICENSE` (EUPL-1.2) and `SECURITY.md` are added when the repository is

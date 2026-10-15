@@ -44,12 +44,43 @@ After every change, in this order:
    not only the happy path.
 2. Check `PLAN.md` against the change and update it in the same commit
    (decisions with their date, ticked items, spike results).
-3. One focused commit with a short imperative subject. Do not push or tag
-   unless asked.
+3. One focused commit per logical change, on the change's own branch (see
+   Review), with a short imperative subject. Do not push or tag unless asked.
 
 # Code style
 
-Verbose comments written for an intermediate developer who is new to Go and
-to Forge remotes. Standard library first, no frameworks. Handlers start no
-goroutines. Every limit and timeout is a named setting or constant, never an
-inline number.
+Follow `CONTRIBUTING.md`, including its review checklist. Comments are for a
+developer new to Go and to Forge remotes: they explain why, cite `PLAN.md`,
+and never restate the code. Concise beats verbose (owner, 2026-10-15).
+
+# Review
+
+Every change goes through three rounds. No code reaches `main` unless an
+agent that did not write it has reviewed it.
+
+1. **Claude writes.** Implement the change on a local branch, run the
+   workflow above, check the diff against the `CONTRIBUTING.md` checklist
+   and commit.
+2. **Codex reviews and fixes.** Review `git diff main...<branch>` against the
+   checklist and `PLAN.md`. Fix each defect in its own commit whose body
+   says what was wrong and why. Never amend or rebase Claude's commits.
+   Report, rather than fix, a finding that needs a design change or that
+   you are unsure of.
+3. **Claude reviews again.** Review the whole branch, Codex's commits in
+   particular. A behaviour change made in this round goes back to round 2;
+   comment and typo fixes do not.
+
+Each round ends with a short report to the owner: commits added, findings
+fixed, findings left open and why, disagreements, and the checks run with
+their results.
+
+**Disagreements go to the owner.** If one agent rejects the other's finding
+or change, neither reverts it nor settles on a compromise. Stop and present:
+the point with `file:line`, each side's position in a sentence or two with
+its evidence (a `PLAN.md` section, a test, documentation), and what is
+blocked. Until the owner decides, the stricter version stays on the branch.
+Record the decision in `PLAN.md` with its date if it is a design decision,
+otherwise in the body of the commit that applies it.
+
+When round 3 ends with no open findings or disagreements and every check
+passes, the owner fast-forwards `main` to the branch, or tells an agent to.
