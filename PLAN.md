@@ -196,6 +196,15 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 
   Tests cover every failure (§13), including a fuzz test of the parser.
   No default of any library defines the contract.
+
+  **Implementation details (2026-10-15).** A NumericDate with a minus sign
+  is refused, even `-0`. Dates are compared exactly at nanosecond
+  resolution: a fractional `exp` rounds down and `nbf` rounds up, so
+  sub-nanosecond rounding can only reject. JSON documents nest at most
+  16 levels; a FIT payload uses five (`app.installation.contexts[i]`), so
+  the bound only refuses hostile input. The installation-context fallback
+  exists in code and tests but is switched off, with no setting to switch it
+  on, until Phase 0 records the evidence (§14).
 - The response never says which check failed. The log does (`auth_reason`,
   for example `audience` or `cloud_id`), which is what an operator needs.
 
@@ -209,8 +218,15 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   `RELAY_JWKS_MAX_AGE` (default 24 h) since its last successful fetch. At that
   age, readiness becomes false and protected endpoints answer `503 not_ready`.
   A successful usable refresh restores readiness. This explicitly permits
-  at most 24 h of stale-key trust by default during an outage; an operator
-  may shorten the window. Require `0 < refresh < max age` at startup.
+  at most 24 h of stale-key trust (of running time) by default during an
+  outage; an operator may shorten the window. Require
+  `0 < refresh < max age` at startup. The age is measured on Go's monotonic
+  clock (owner, 2026-10-16), so a wall-clock step cannot expire good keys or
+  revive old ones. On Linux that clock stops while the host is suspended,
+  so after a resume a snapshot can be older than `RELAY_JWKS_MAX_AGE` in
+  wall time: the next refresh, due within one refresh interval of running
+  time, replaces it if it succeeds, and otherwise the maximum age of
+  running time applies.
 - One refresh worker serves startup, retries, periodic refreshes and all
   unknown key IDs. There is at most one network fetch in flight per cache,
   and unknown-key-triggered fetch starts are globally limited to once per
@@ -240,6 +256,22 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   or attacker-selected key IDs.
 - The JWKS URL must be HTTPS. Default:
   `https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json`.
+- **Implementation details (2026-10-15).** `n` and `e` are strict base64url
+  without a leading zero octet. `e` is odd and between 3 and 2³¹−1, and the
+  modulus is odd and has at most `MaxRSAModulusBits = 8192` bits, which
+  bounds the cost of verification; `crypto/rsa` would refuse to verify with
+  an even modulus or exponent, so such a key fails the refresh at once
+  instead of failing every FIT later. A violation counts as invalid RSA
+  parameters. These checks apply only to an otherwise eligible key: an RSA
+  signing key whose strictly decoded modulus is under 2048 bits is skipped
+  as undersized before `e` and the modulus parity are judged (2026-10-16).
+  A malformed `n`, or a missing or empty `kid`, still fails the refresh,
+  since only type, use, algorithm and size are reasons to skip. The JWKS fetch does not follow redirects, holds no idle
+  connection and asks for no compression, so the size cap applies to the
+  bytes received; its response header is capped at 32 KiB, and the TLS
+  handshake and dial have their own timeouts. Only a `200` answer counts as
+  a successful fetch. Skipped keys are logged as one count per reason, never
+  per key.
 
 ### 4.6 Compatibility and conformance (2026-10-15)
 
@@ -706,7 +738,9 @@ promotes unreleased work from `main` into a patch release.
     one-a-minute limit and single fetch; show known-key calls do not wait,
     unknown-key waits are bounded and cancel promptly, and one caller's
     cancellation does not cancel the shared worker. Inject a clock/fetcher
-    so these tests do not wait for real refresh intervals.
+    so these tests do not wait for real refresh intervals. The fetcher is an
+    injected function; the clock is the fake clock of a `testing/synctest`
+    bubble, so production code needs no timer interface (2026-10-15).
   - **Forwarding:** route allowlist, path tricks, header filtering, the
     credential overriding a caller's header, no redirects, size limits before
     anything is sent, `504` on timeout, cancel on disconnect. Cover base-path

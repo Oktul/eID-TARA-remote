@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"context\":{\"cloudId\":\"00000000-0000-4000-8000-00000000000a\"},\"app\":{\"environment\":{\"id\":\"e\"},\"installation\":{\"contexts\":[{\"cloudId\":\"x\"},{}]}},\"aud\":[\"a\",\"\"],\"iss\":null,\"ISS\":1}")

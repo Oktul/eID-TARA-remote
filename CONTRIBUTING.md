@@ -117,8 +117,9 @@ code, `TODO` without a `PLAN.md` item, and words like "robust",
 - Contract tests (`PLAN.md` §4.6) spell header names, error codes and
   setting names as literals, not through the production constants, so a
   rename breaks a test. Changing such a fixture is a protocol change.
-- No sleeps and no outside network. Time comes from an injected clock;
-  servers are `httptest` on loopback.
+- No sleeps and no outside network. Time comes from an injected clock or
+  the fake clock of a `testing/synctest` bubble; servers are `httptest` on
+  loopback.
 - Keys are generated during the test run, once per package. No private keys,
   live tokens or real IDs are committed; synthetic UUIDs only.
 - Parsers have fuzz tests with a seed corpus in `testdata/fuzz/`.
