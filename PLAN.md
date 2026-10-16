@@ -4,9 +4,9 @@ _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
 Phase 0 (D10), and checked locally (§16). Phase 0 ran the same day: every
 gate passed except PINNED, which needs a site with data residency (§14).
 Not merged, tagged or published; no workflow has run, since the repository
-has no remote yet. All three review rounds are done; the fixes for their
-three remaining findings, and the Phase 0 fixes, await Codex's review
-(`AGENTS.md`, §16). Still open: the PINNED gate, source CI on GitHub and
+has no remote yet. Codex's round 2 for the remaining review fixes and Phase 0
+changes is complete; Claude's round 3 is next (`AGENTS.md`, §16). Still open:
+the PINNED gate, the site label in original history, source CI on GitHub and
 the Phase 2 release verifications. Adding `remotes` to the Forge app's main
 line still needs the owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
@@ -45,7 +45,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D4  | **CI on GitHub Actions. Go patch releases ship automatically;** every other change needs a human merge (2026-10-15).   | Go's `net/http` and `crypto/tls` get security fixes several times a year. A Go patch release carries only such fixes and the tests pin the protocol, so it ships unreviewed. Go minors and Actions can change more. §12.                       |
 | D5  | **Every relay is pinned to the customer's site (`cloudId`) and Forge environment. Both are required settings.**        | The FIT's audience is our app ID, shared by every install. Without a pin, another site's admin could point their install at this relay and use the customer's IP and credential.                                                               |
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
-| D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Forge reads `401` from a remote as a failed FIT check and treats `3xx` and other non-2xx answers as failures. An upstream `401 invalid_client` must not look like a FIT failure.                                                               |
+| D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Keeps upstream status distinct from relay errors: a provider's `401 invalid_client` must not look like the relay's `401 invalid_token`. Phase 0 found that backend `invokeRemote` also returns non-2xx answers intact (§14, 2026-10-16); v1 wrapping stays unchanged. |
 | D8  | **Defaults sized for token calls:** 10 s upstream timeout, 64 KiB request and response limits.                         | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Also keeps the memory budget far below 128 MB (§6).                                                                                           |
 | D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
 | D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback ships disabled, and no gate counts as passed until it is recorded here.                       |
@@ -1371,6 +1371,25 @@ The recorded observations and the open PINNED gate are unchanged.
 `gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
 and `govulncheck ./...` pass in order; no vulnerabilities found. Race tests
 use the pinned Go 1.27.2 Linux builder. All release-script fixtures pass.
+
+The protocol guide still described custom headers and non-2xx bodies as
+unverified, and generalized bridge error handling to backend `invokeRemote`.
+Updated `docs/PROTOCOL.md` and D7's rationale to agree with the observed
+backend responses in §14; the v1 response contract is unchanged.
+All five required Go checks pass again in order after this correction,
+including Linux race tests; no vulnerabilities found.
+
+Independent reviewers found no runtime defects in `claude/jwks-padding` or
+the environment-ARI update, and confirmed the three inherited round-3
+findings are fixed. The release-script fixtures pass, and the shutdown-order
+test passes 20 additional repetitions. No disagreements remain. Claude's
+round 3 is still required; no merge, push, tag or publication was performed.
+`FuzzParseJWKS` passes a further one-minute run (1,834,667 inputs).
+
+**Open public-ready finding:** the removed site label remains in Claude's
+original local commits. `AGENTS.md` forbids amending or rebasing them, so
+history sanitization or an explicit exception needs the owner's decision
+before publication. The current tree contains no such label.
 
 Primary references consulted for the review on 2026-10-15:
 

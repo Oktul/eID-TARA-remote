@@ -91,14 +91,17 @@ with:
   `Content-Type`, `Cache-Control`, `Pragma`);
 - `Relay-Protocol: 1` and `Relay-Version`.
 
-Forge reads a `401` from a remote as a failed FIT check and treats `3xx` and
-other non-2xx answers as failures, so a provider's `401 invalid_client` must
-not look like a FIT failure (`PLAN.md` D7). The relay does not follow
+The wrapping lets the Forge app distinguish a provider's `401 invalid_client`
+from the relay's `401 invalid_token` (`PLAN.md` D7). The relay does not follow
 redirects, so a provider `302` arrives as `200` with
 `Relay-Upstream-Status: 302`.
 
-Whether `invokeRemote` gives the function custom headers and non-2xx bodies
-is still a Phase 0 question (`PLAN.md` §15 Q2); D7 needs the header.
+Phase 0 confirmed on 2026-10-16 that backend `invokeRemote` exposes custom
+headers and bodies, including on non-2xx answers: relay-generated `401` and
+`404` responses reached the function intact (`PLAN.md` §14). The v1 wrapping
+rule remains unchanged. Forge infrastructure and customer proxies may also
+generate or replace error responses; check `Relay-Protocol` before treating
+one as a relay answer.
 
 ### 4.2 Relay answers
 
