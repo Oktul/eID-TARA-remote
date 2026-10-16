@@ -82,7 +82,7 @@ prepare() {
 	fi
 	if [[ $last != "$latest" ]]; then
 		"$here/issue.sh" "go-patch: $branch: $last is not on the branch" \
-			"$last is the newest v$line release, but $branch contains ${latest:-no v$line release}, so go-patch.yml leaves this line alone (PLAN.md §12). Move $branch to $last if it descends from the branch, or release the line by hand with a newer tag on $branch; automatic Go patches resume from that release."
+			"$last is the newest v$line release, but $branch contains ${latest:+only }${latest:-no v$line release}, so go-patch.yml leaves this line alone (PLAN.md §12). Move $branch to $last if it descends from the branch, or release the line by hand with a newer tag on $branch; automatic Go patches resume from that release."
 		return
 	fi
 	tag_commit=$(git rev-parse --verify "refs/tags/$latest^{commit}")
