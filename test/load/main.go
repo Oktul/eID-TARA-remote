@@ -261,9 +261,6 @@ func printResult(w io.Writer, r result) {
 	rows(w, "probe failures", r.probe.failures)
 	row(w, "upstream calls", strconv.FormatInt(r.upstreamCalls, 10))
 	row(w, "jwks fetches", strconv.FormatInt(r.jwksFetches, 10))
-	for _, n := range r.notes {
-		row(w, "note", n)
-	}
 	if len(r.failures) == 0 {
 		row(w, "result", "ok")
 	} else {

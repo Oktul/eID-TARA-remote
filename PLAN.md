@@ -1102,6 +1102,12 @@ were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows
 branch predates the Phase 1 review fixes; they are checked and carried here
 as separate commits, alongside the Phase 2 review.
 
+- Fixed the load generator's false acceptance when `full` never reaches
+  the concurrency cap (§13). It now fails with a request to increase the
+  worker count or upstream delay. The regression failed before the fix;
+  a run seeing both forwarding and overload remains accepted. All five
+  required Go checks pass, including Linux race tests; no vulnerabilities
+  are reported.
 - Fixed support selection so only release lines with a release tag can
   choose the current or previous major (§12). Preparing an unreleased
   future-major branch no longer drops the still-supported previous major

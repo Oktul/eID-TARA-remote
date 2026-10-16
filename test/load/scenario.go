@@ -143,7 +143,7 @@ type result struct {
 	probe              probeTally
 	upstreamCalls      int64
 	jwksFetches        int64
-	failures, notes    []string
+	failures           []string
 }
 
 // runScenario runs s for d while probing the relay's health. The probe
@@ -168,9 +168,6 @@ func runScenario(ctx context.Context, e *env, s scenario, d time.Duration) resul
 	r.upstreamCalls = e.fixture.upstreamCalls.Load() - upstream0
 	r.jwksFetches = e.fixture.jwksFetches.Load() - jwks0
 	r.failures = verdict(s, r)
-	if s.overCap && r.outcomes[outcomeTooBusy] == 0 {
-		r.notes = append(r.notes, "the concurrency cap was never reached; raise -c or -upstream-delay")
-	}
 	return r
 }
 
@@ -192,6 +189,9 @@ func verdict(s scenario, r result) []string {
 	}
 	if s.required != "" && r.outcomes[s.required] == 0 {
 		f = append(f, "no "+s.required+" answer")
+	}
+	if s.overCap && r.outcomes[outcomeTooBusy] == 0 {
+		f = append(f, "the concurrency cap was never reached; raise -c or -upstream-delay")
 	}
 	if n := sum(r.errors); n > 0 {
 		f = append(f, fmt.Sprintf("%d errors", n))
