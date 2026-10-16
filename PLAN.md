@@ -447,7 +447,9 @@ before they are supported for production.
   - builder: the official `golang` image pinned by digest;
     `CGO_ENABLED=0`, `-trimpath`, and the version stamped with `-ldflags`;
   - final image: `FROM scratch` with the binary and the builder's CA bundle,
-    `USER 65532:65532`, about 10 MB, no shell or package manager (S-2, S-3);
+    `USER 65532:65532`, no shell or package manager (S-2, S-3); measured
+    18.5 MB unpacked on 2026-10-15, since the binary keeps its symbols for
+    `govulncheck -mode=binary`;
   - `scratch` rather than distroless leaves one base image to track instead
     of two, and the CA bundle refreshes with every toolchain rebuild.
 - **Health check:** `relay healthcheck` calls `/livez` (or `/readyz` with
