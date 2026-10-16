@@ -6,8 +6,8 @@ gate passed except PINNED, which needs a site with data residency (§14).
 Not merged, tagged or published; no workflow has run, since the repository
 has no remote yet. All three review rounds are done for every change,
 Phase 0 fixes included, with no open code findings: `codex/review-phase-0-results`
-holds the whole line for `main`. Before `main` moves, the owner decides on
-the test-site label in the original history (§16). Still open: the PINNED
+is the whole line, and `main` is fast-forwarded to it after the owner's
+one-time history rewrite (§16). Still open: the PINNED
 gate, source CI on GitHub and the Phase 2 release verifications. Adding
 `remotes` to the Forge app's main line still needs the owner's approval
 (Oktul eID SSO, `PLAN.md` §4.7)._
@@ -1388,16 +1388,16 @@ test passes 20 additional repetitions. No disagreements remain. Claude's
 round 3 is still required; no merge, push, tag or publication was performed.
 `FuzzParseJWKS` passes a further one-minute run (1,834,667 inputs).
 
-**Open public-ready finding:** the removed site label remains in Claude's
-original local commits. `AGENTS.md` forbids amending or rebasing them, so
+**Open public-ready finding (resolved by the owner's decision below):** the
+removed site label remains in Claude's original local commits. `AGENTS.md` forbids amending or rebasing them, so
 history sanitization or an explicit exception needs the owner's decision
 before publication. The current tree contains no such label.
 
 **Claude review, round 3, Phase 0 changes (2026-10-16).** Reviewed the
-whole branch on top of `claude/phase-2-packaging` (`6aeb3e5` to `3af2486`),
-Codex's two commits in particular. Both stand: `3913248` removes the
-test-site label, which `AGENTS.md` forbids as an internal hostname, and
-`3af2486` makes D7's rationale and `docs/PROTOCOL.md` match §14 without
+whole branch on top of `claude/phase-2-packaging` (`6aeb3e5` to `12442f8`;
+hashes after the rewrite below), Codex's two commits in particular. Both
+stand: `89f9681` removes the test-site label, which `AGENTS.md` forbids as
+an internal hostname, and `12442f8` makes D7's rationale and `docs/PROTOCOL.md` match §14 without
 changing the v1 contract. No new findings and no disagreements.
 
 - Checks on the tip: `gofmt -w .` (no changes), `go vet`, `staticcheck`
@@ -1406,9 +1406,9 @@ changing the v1 contract. No new findings and no disagreements.
   `go-patch-test.sh` pass in the same image with `jq` added.
 - Identifier search: the tree and every branch's history were searched
   for the spike's site names, app, site, environment and installation IDs,
-  trigger and tunnel names and test accounts. The tree is clean; the only
-  hit in history is the site label that `56c9d8e` adds and `3913248`
-  removes.
+  trigger and tunnel names and test accounts. The tree was clean; the only
+  hit in history was the site label that the original "Record the Phase 0
+  gate results" commit added and Codex's sanitizing commit removed.
 - Branches: `codex/review-phase-0-results` contains `main`, the packaging
   line, both Phase 0 branches and `codex/fix-code-conventions`.
   `claude/phase-1-relay-core` is superseded (its four Codex fixes are
@@ -1416,12 +1416,18 @@ changing the v1 contract. No new findings and no disagreements.
   `claude/wip-backup` is an old work-in-progress backup whose content has
   landed. Neither is deleted without the owner's word.
 
-**Owner decision needed: the site label in history.** Nothing has been
-pushed, so the cheapest fix is a one-time rewrite of the unpushed line
-that replaces the label in `56c9d8e` before `main` is fast-forwarded,
-done by the owner or by an agent the owner explicitly allows (`AGENTS.md`
-forbids it otherwise). The alternative is to accept the label, which names
-a development site, not a customer.
+**Owner decision (2026-10-16): rewrite the unpushed line once, then
+fast-forward `main`.** The owner allowed Claude a one-time exception to
+`AGENTS.md`'s no-rewrite rule. "Record the Phase 0 gate results" was
+replayed on `ece6552` with Codex's wording in place of the label (now
+`f466047`), and the four later commits were cherry-picked unchanged with
+their messages and authors (`1f57c08`, `89f9681`, `12442f8`, `ac0cf17`).
+The final tree is identical to the old tip's, and no commit from `main` to
+the tip contains the label; Codex's sanitizing commit now changes only §16.
+The old commits stay in the local reflog until Git prunes them; nothing
+was ever pushed. `claude/phase-0-results` and
+`codex/review-phase-0-results` point to the rewritten commits, and `main`
+is fast-forwarded to this commit.
 
 Primary references consulted for the review on 2026-10-15:
 
