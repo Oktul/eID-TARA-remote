@@ -442,8 +442,11 @@ never written onto a connection the relay is closing (R-1, R-8; 2026-10-15).
 The relay port is reachable only by that proxy and local/cluster health
 probes, never directly from the public network. Health probes bypass the
 forwarding semaphore, so a full relay answers `503 too_busy` without causing
-a liveness restart. Direct built-in TLS deployments need equivalent limits
-before they are supported for production.
+a liveness restart. The relay serves plain HTTP only; TLS is the proxy's
+job (D6). Built-in TLS (`RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE`, S-10)
+was removed before the first release (owner, 2026-10-16): it served only a
+relay exposed without a proxy, which this section does not support, and a
+customer who wants TLS on the internal hop adds it with a sidecar or mesh.
 
 ## 7. Stack and image
 
@@ -524,9 +527,7 @@ decimal integers. `RELAY_LOG_LEVEL` is matched exactly.
 like the upstream URL, has a host and no userinfo, query or fragment, since
 the startup summary prints it. `RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
 of PEM `CERTIFICATE` blocks with only whitespace before, between and after
-them; `_FILE` values are read up to 64 KiB. `RELAY_TLS_CERT_FILE` and
-`RELAY_TLS_KEY_FILE` are set together or not at all, each read up to 1 MiB,
-and must hold a PEM certificate chain and its matching private key. The
+them; `_FILE` values are read up to 64 KiB. The
 `RELAY_UPSTREAM_AUTH` value loses spaces and tabs around it and must not be
 empty (2026-10-16).
 
@@ -543,7 +544,6 @@ empty (2026-10-16).
 | `RELAY_REQUEST_HEADERS`                     | no       | `Content-Type,Accept`               | Request headers passed on                                              |
 | `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                           |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                            |
-| `RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE` | no       | off                                 | Built-in TLS, 1.2 or later (S-10)                                      |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                        |
 | `RELAY_MAX_REQUEST_BYTES`                   | no       | `65536`                             | Request body limit                                                     |
 | `RELAY_MAX_RESPONSE_BYTES`                  | no       | `65536`                             | Upstream body limit                                                    |

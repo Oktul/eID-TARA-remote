@@ -13,7 +13,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -188,7 +187,7 @@ func newLogger(w io.Writer, level slog.Level) *slog.Logger {
 // healthcheck asks the local relay for /livez, or /readyz with --ready, and
 // exits 0 only on 200 (PLAN.md §7 O-3). Every other outcome exits 1, a usage
 // error included: Docker reserves exit code 2 for health checks. It reads
-// only the port and whether built-in TLS is on, never the credential.
+// only the port, never the credential.
 func healthcheck(ctx context.Context, args, environ []string, stderr io.Writer) int {
 	// The probe's HTTP client can emit the same raw net/http diagnostics as
 	// serve. Keep its output restricted to the fixed errors below (§10).
@@ -200,19 +199,16 @@ func healthcheck(ctx context.Context, args, environ []string, stderr io.Writer) 
 		_, _ = fmt.Fprintln(stderr, "usage: relay healthcheck [--ready]") // stderr is all there is to report to
 		return exitFail
 	}
-	port, useTLS, err := config.HealthTarget(environ)
+	port, err := config.HealthPort(environ)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err) // a *config.Error names the setting, never its value
 		return exitFail
 	}
-	scheme, path := "http", "/livez"
-	if useTLS {
-		scheme = "https"
-	}
+	path := "/livez"
 	if *ready {
 		path = "/readyz"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://127.0.0.1:"+strconv.Itoa(port)+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(port)+path, nil)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "healthcheck: bad request")
 		return exitFail
@@ -220,11 +216,7 @@ func healthcheck(ctx context.Context, args, environ []string, stderr io.Writer) 
 	client := &http.Client{
 		Timeout: healthcheckTimeout,
 		Transport: &http.Transport{
-			Proxy: nil, // loopback; never through HTTPS_PROXY
-			// The relay's certificate names its public host, not
-			// 127.0.0.1, and this probe sends no credential and reads no
-			// data, so it skips verification on loopback only.
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true},
+			Proxy: nil, // loopback; never through a proxy
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}

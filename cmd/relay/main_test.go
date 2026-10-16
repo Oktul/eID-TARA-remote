@@ -419,7 +419,7 @@ func TestServeStartsAndStops(t *testing.T) {
 				"RELAY_UPSTREAM_URL", "RELAY_ROUTES", "RELAY_UPSTREAM_AUTH",
 				"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
 				"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT",
-				"RELAY_TLS_CERT_FILE", "RELAY_TLS_KEY_FILE", "RELAY_UPSTREAM_TIMEOUT",
+				"RELAY_UPSTREAM_TIMEOUT",
 				"RELAY_MAX_REQUEST_BYTES", "RELAY_MAX_RESPONSE_BYTES",
 				"RELAY_MAX_CONCURRENT", "RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 				"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE",
@@ -653,10 +653,10 @@ type probeServer struct {
 	paths []string
 }
 
-func newProbeServer(t *testing.T, useTLS bool, statuses map[string]int) *probeServer {
+func newProbeServer(t *testing.T, statuses map[string]int) *probeServer {
 	t.Helper()
 	p := &probeServer{}
-	p.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		p.paths = append(p.paths, r.URL.RequestURI())
 		p.mu.Unlock()
@@ -669,11 +669,6 @@ func newProbeServer(t *testing.T, useTLS bool, statuses map[string]int) *probeSe
 		}
 		w.WriteHeader(status)
 	}))
-	if useTLS {
-		p.StartTLS()
-	} else {
-		p.Start()
-	}
 	t.Cleanup(p.Close)
 	return p
 }
@@ -693,24 +688,8 @@ func (p *probeServer) requested() []string {
 	return slices.Clone(p.paths)
 }
 
-// healthEnv returns the settings healthcheck reads. HealthTarget only checks
-// that RELAY_TLS_CERT_FILE is set, so any existing file selects HTTPS.
-func healthEnv(t *testing.T, port string, useTLS bool) map[string]string {
-	t.Helper()
-	env := map[string]string{"RELAY_PORT": port}
-	if useTLS {
-		path := filepath.Join(t.TempDir(), "cert.pem")
-		if err := os.WriteFile(path, []byte("not read by healthcheck\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		env["RELAY_TLS_CERT_FILE"] = path
-	}
-	return env
-}
-
 // TestHealthcheck checks PLAN.md §7 O-3: exit 0 only when /livez, or /readyz
-// with --ready, answers 200 on the relay's port, over HTTPS when built-in TLS
-// is on. A redirect is an answer, not something to follow: a container
+// with --ready, answers 200 on the relay's port. A redirect is an answer, not something to follow: a container
 // runtime must not count a relay that redirects as healthy.
 func TestHealthcheck(t *testing.T) {
 	cases := []struct {
@@ -726,25 +705,19 @@ func TestHealthcheck(t *testing.T) {
 		{"readyz_503_exits_1_while_live", []string{"--ready"}, map[string]int{"/livez": 200, "/readyz": 503}, 1, []string{"/readyz"}},
 		{"redirect_not_followed", nil, map[string]int{"/livez": 302, "/followed": 200}, 1, []string{"/livez"}},
 	}
-	for _, useTLS := range []bool{false, true} {
-		scheme := "http"
-		if useTLS {
-			scheme = "https"
-		}
-		for _, tc := range cases {
-			t.Run(scheme+"/"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				p := newProbeServer(t, useTLS, tc.statuses)
-				var stdout, stderr bytes.Buffer
-				args := append([]string{"healthcheck"}, tc.args...)
-				if code := run(args, environ(healthEnv(t, p.port(t), useTLS)), &stdout, &stderr); code != tc.want {
-					t.Errorf("exit code = %d, want %d; stderr: %s", code, tc.want, stderr.String())
-				}
-				if got := p.requested(); !slices.Equal(got, tc.requested) {
-					t.Errorf("requested %v, want %v", got, tc.requested)
-				}
-			})
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newProbeServer(t, tc.statuses)
+			var stdout, stderr bytes.Buffer
+			args := append([]string{"healthcheck"}, tc.args...)
+			if code := run(args, environ(map[string]string{"RELAY_PORT": p.port(t)}), &stdout, &stderr); code != tc.want {
+				t.Errorf("exit code = %d, want %d; stderr: %s", code, tc.want, stderr.String())
+			}
+			if got := p.requested(); !slices.Equal(got, tc.requested) {
+				t.Errorf("requested %v, want %v", got, tc.requested)
+			}
+		})
 	}
 }
 
@@ -772,10 +745,10 @@ func TestHealthcheckBadFlagsExit1(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			p := newProbeServer(t, false, map[string]int{"/livez": 200, "/readyz": 200})
+			p := newProbeServer(t, map[string]int{"/livez": 200, "/readyz": 200})
 			var stdout, stderr bytes.Buffer
 			args := append([]string{"healthcheck"}, tc.args...)
-			if code := run(args, environ(healthEnv(t, p.port(t), false)), &stdout, &stderr); code != 1 {
+			if code := run(args, environ(map[string]string{"RELAY_PORT": p.port(t)}), &stdout, &stderr); code != 1 {
 				t.Errorf("exit code = %d, want 1", code)
 			}
 			if !strings.Contains(stderr.String(), "usage: relay healthcheck") {
@@ -802,11 +775,11 @@ func TestHealthcheckBadPortExits1(t *testing.T) {
 }
 
 // TestHealthcheckIgnoresOtherSettings checks that the probe reads only the
-// port and the TLS switch (PLAN.md §7 O-3): broken or secret settings
+// port (PLAN.md §7 O-3): broken or secret settings
 // elsewhere neither fail it nor reach its output.
 func TestHealthcheckIgnoresOtherSettings(t *testing.T) {
-	p := newProbeServer(t, false, map[string]int{"/livez": 200})
-	env := with(healthEnv(t, p.port(t), false),
+	p := newProbeServer(t, map[string]int{"/livez": 200})
+	env := with(map[string]string{"RELAY_PORT": p.port(t)},
 		"RELAY_APP_ID", marker,
 		"RELAY_ROUTES", marker,
 		"RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker)
@@ -825,16 +798,14 @@ func TestHealthcheckIgnoresOtherSettings(t *testing.T) {
 // proxy also skips loopback, so this pins the observable behaviour rather
 // than one line of the transport.
 func TestHealthcheckIgnoresProxyEnvironment(t *testing.T) {
-	proxy := newProbeServer(t, false, nil)
+	proxy := newProbeServer(t, nil)
 	t.Setenv("HTTPS_PROXY", proxy.URL)
 	t.Setenv("HTTP_PROXY", proxy.URL)
 	t.Setenv("NO_PROXY", "")
-	for _, useTLS := range []bool{false, true} {
-		p := newProbeServer(t, useTLS, map[string]int{"/livez": 200})
-		var stdout, stderr bytes.Buffer
-		if code := run([]string{"healthcheck"}, environ(healthEnv(t, p.port(t), useTLS)), &stdout, &stderr); code != 0 {
-			t.Errorf("TLS %v: exit code = %d, want 0; stderr: %s", useTLS, code, stderr.String())
-		}
+	p := newProbeServer(t, map[string]int{"/livez": 200})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"healthcheck"}, environ(map[string]string{"RELAY_PORT": p.port(t)}), &stdout, &stderr); code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr: %s", code, stderr.String())
 	}
 	if got := proxy.requested(); len(got) != 0 {
 		t.Errorf("proxy received %v, want nothing", got)

@@ -12,7 +12,6 @@ package config
 
 import (
 	"bytes"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -35,9 +34,8 @@ const (
 	// MaxSettingFileBytes bounds a <NAME>_FILE read, so a wrong path (a log
 	// file, a device) cannot exhaust memory at startup.
 	MaxSettingFileBytes = 64 << 10
-	// MaxCAFileBytes bounds the reads of RELAY_UPSTREAM_CA_FILE,
-	// RELAY_TLS_CERT_FILE and RELAY_TLS_KEY_FILE, which hold PEM bundles
-	// rather than a single value.
+	// MaxCAFileBytes bounds the read of RELAY_UPSTREAM_CA_FILE, which holds
+	// a PEM bundle rather than a single value.
 	MaxCAFileBytes = 1 << 20
 	// MaxPayloadBudget caps RELAY_MAX_CONCURRENT × (RELAY_MAX_REQUEST_BYTES +
 	// RELAY_MAX_RESPONSE_BYTES), the body memory the relay may hold at once
@@ -91,7 +89,7 @@ const (
 const WriteTimeoutMargin = 5 * time.Second
 
 // Config is the validated configuration, one field per setting of PLAN.md
-// §8. Do not print a Config whole: it holds the credential and the TLS key.
+// §8. Do not print a Config whole: it holds the credential.
 // Summary lists the settings safely.
 type Config struct {
 	AppID           string   // RELAY_APP_ID
@@ -109,8 +107,7 @@ type Config struct {
 	RequestHeaders     []string       // RELAY_REQUEST_HEADERS, canonical names
 	ResponseHeaders    []string       // RELAY_RESPONSE_HEADERS, canonical names
 
-	Port           int              // RELAY_PORT
-	TLSCertificate *tls.Certificate // RELAY_TLS_CERT_FILE and RELAY_TLS_KEY_FILE; nil: plain HTTP
+	Port int // RELAY_PORT
 
 	UpstreamTimeout  time.Duration // RELAY_UPSTREAM_TIMEOUT
 	MaxRequestBytes  int64         // RELAY_MAX_REQUEST_BYTES
@@ -156,20 +153,12 @@ func Load(environ []string) (*Config, []string, error) {
 	return c, unknown, nil
 }
 
-// HealthTarget returns the port the relay listens on and whether it serves
-// built-in TLS, for `relay healthcheck` (PLAN.md §7, O-3). It reads only
-// RELAY_PORT and whether RELAY_TLS_CERT_FILE is set (each possibly through
-// _FILE), so the probe does not depend on the rest of the configuration.
-func HealthTarget(environ []string) (port int, useTLS bool, err error) {
+// HealthPort returns the port the relay listens on, for `relay healthcheck`
+// (PLAN.md §7, O-3). It reads only RELAY_PORT (possibly through _FILE), so
+// the probe does not depend on the rest of the configuration.
+func HealthPort(environ []string) (int, error) {
 	env, _ := parseEnviron(environ)
-	if port, err = env.port(); err != nil {
-		return 0, false, err
-	}
-	cert, _, err := env.value("RELAY_TLS_CERT_FILE", false)
-	if err != nil {
-		return 0, false, err
-	}
-	return port, cert != "", nil
+	return env.port()
 }
 
 // Summary returns the startup summary of PLAN.md §10 (O-5): one attribute
@@ -204,8 +193,6 @@ func (c *Config) Summary() []slog.Attr {
 		slog.String("RELAY_REQUEST_HEADERS", strings.Join(c.RequestHeaders, ",")),
 		slog.String("RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ",")),
 		slog.Int("RELAY_PORT", c.Port),
-		slog.String("RELAY_TLS_CERT_FILE", state(c.TLSCertificate != nil, "off")),
-		slog.String("RELAY_TLS_KEY_FILE", state(c.TLSCertificate != nil, "off")),
 		slog.String("RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout.String()),
 		slog.Int64("RELAY_MAX_REQUEST_BYTES", c.MaxRequestBytes),
 		slog.Int64("RELAY_MAX_RESPONSE_BYTES", c.MaxResponseBytes),
@@ -228,7 +215,7 @@ func state(set bool, unset string) string {
 	return unset
 }
 
-// known reports the 23 settings of the PLAN.md §8 table. Any other RELAY_*
+// known reports the 21 settings of the PLAN.md §8 table. Any other RELAY_*
 // variable, other than a known name plus _FILE, is reported as unknown so
 // that a typo does not go unnoticed.
 func known(name string) bool {
@@ -237,7 +224,7 @@ func known(name string) bool {
 		"RELAY_UPSTREAM_URL", "RELAY_ROUTES", "RELAY_UPSTREAM_AUTH",
 		"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
 		"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT",
-		"RELAY_TLS_CERT_FILE", "RELAY_TLS_KEY_FILE", "RELAY_UPSTREAM_TIMEOUT",
+		"RELAY_UPSTREAM_TIMEOUT",
 		"RELAY_MAX_REQUEST_BYTES", "RELAY_MAX_RESPONSE_BYTES",
 		"RELAY_MAX_CONCURRENT", "RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE",
@@ -333,9 +320,6 @@ func (e environment) load() (*Config, error) {
 		return nil, err
 	}
 	if c.Port, err = e.port(); err != nil {
-		return nil, err
-	}
-	if c.TLSCertificate, err = e.tlsCertificate(); err != nil {
 		return nil, err
 	}
 	if c.UpstreamTimeout, err = e.upstreamTimeout(); err != nil {
@@ -699,41 +683,6 @@ func parseDigits(s string) (int64, bool) {
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	return n, err == nil
-}
-
-func (e environment) tlsCertificate() (*tls.Certificate, error) {
-	const certName, keyName = "RELAY_TLS_CERT_FILE", "RELAY_TLS_KEY_FILE"
-	certPath, _, err := e.value(certName, false)
-	if err != nil {
-		return nil, err
-	}
-	keyPath, _, err := e.value(keyName, false)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case certPath == "" && keyPath == "":
-		return nil, nil
-	case certPath == "":
-		return nil, fail(certName, "required when "+keyName+" is set")
-	case keyPath == "":
-		return nil, fail(keyName, "required when "+certName+" is set")
-	}
-	certPEM, reason := readFile(certPath, MaxCAFileBytes)
-	if reason != "" {
-		return nil, fail(certName, reason)
-	}
-	keyPEM, reason := readFile(keyPath, MaxCAFileBytes)
-	if reason != "" {
-		return nil, fail(keyName, reason)
-	}
-	// A fixed reason replaces the error of X509KeyPair, which is not
-	// documented to leave out what it parsed.
-	pair, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return nil, fail(certName+", "+keyName, "want a PEM certificate chain and its matching PEM private key")
-	}
-	return &pair, nil
 }
 
 // duration parses a time.ParseDuration setting such as "10s". positive

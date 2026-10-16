@@ -333,9 +333,8 @@ must:
    them. If your proxy cannot enforce a limit, enforce it in front of the
    proxy (firewall or load balancer).
 4. **Keep the relay port private**: only the proxy and local or cluster
-   health probes may reach it, never the public network. Built-in TLS
-   (`RELAY_TLS_CERT_FILE`) does not replace the proxy: a relay exposed
-   directly is not supported for production.
+   health probes may reach it, never the public network. The relay serves
+   plain HTTP only; the proxy provides TLS.
 5. **Never retry** a request to the relay. A token exchange may already have
    used the provider's one-time code (R-8). For the same reason, close idle
    connections to the relay before it does: keep the proxy's upstream
@@ -624,7 +623,7 @@ Two more `error` values have no code, because nobody receives an answer:
 
 A request the HTTP server rejects before the relay sees it, such as a header
 block over 16 KiB, leaves no request line. Failures inside the HTTP server
-itself, such as TLS handshake errors with built-in TLS, log only
+itself log only
 `http server error` at `debug` level, without detail.
 
 ### 10.4 `auth_reason`

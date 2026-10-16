@@ -109,20 +109,16 @@ func writeFile(t *testing.T, name string, data []byte) string {
 	return path
 }
 
-// testPEM is a self-signed certificate with its key, and an unrelated key.
+// testPEM is a self-signed certificate with its key.
 type testPEM struct {
-	cert, key, otherKey []byte
-	err                 error
+	cert, key []byte
+	err       error
 }
 
 // generatedPEM creates the test keys once per test run (CONTRIBUTING.md,
 // Tests); nothing is committed.
 var generatedPEM = sync.OnceValue(func() testPEM {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return testPEM{err: err}
-	}
-	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return testPEM{err: err}
 	}
@@ -146,9 +142,6 @@ var generatedPEM = sync.OnceValue(func() testPEM {
 	}
 	p := testPEM{cert: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})}
 	if p.key, err = keyPEM(key); err != nil {
-		return testPEM{err: err}
-	}
-	if p.otherKey, err = keyPEM(other); err != nil {
 		return testPEM{err: err}
 	}
 	return p
@@ -179,7 +172,6 @@ func table(t *testing.T) []row {
 	t.Helper()
 	p := pemFiles(t)
 	cert := writeFile(t, "cert.pem", p.cert)
-	key := writeFile(t, "key.pem", p.key)
 	missing := filepath.Join(t.TempDir(), marker+".pem")
 	return []row{
 		{"RELAY_APP_ID", appID, "ari:cloud:ecosystem::app/" + marker,
@@ -214,10 +206,6 @@ func table(t *testing.T) []row {
 			}},
 		{"RELAY_PORT", "8443", "8443" + marker,
 			func(c *config.Config) bool { return c.Port == 8443 }},
-		{"RELAY_TLS_CERT_FILE", cert, missing,
-			func(c *config.Config) bool { return c.TLSCertificate != nil }},
-		{"RELAY_TLS_KEY_FILE", key, missing,
-			func(c *config.Config) bool { return c.TLSCertificate != nil }},
 		{"RELAY_UPSTREAM_TIMEOUT", "3s", "3s" + marker,
 			func(c *config.Config) bool { return c.UpstreamTimeout == 3*time.Second }},
 		{"RELAY_MAX_REQUEST_BYTES", "1000", "1000" + marker,
@@ -295,14 +283,14 @@ func TestEverySettingIsRead(t *testing.T) {
 	}
 }
 
-// TestSettingNames pins the 23 setting names of PLAN.md §8 as literals: none
+// TestSettingNames pins the 21 setting names of PLAN.md §8 as literals: none
 // of them, nor its _FILE variant, is reported as unknown.
 func TestSettingNames(t *testing.T) {
 	names := []string{
 		"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL",
 		"RELAY_ROUTES", "RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-		"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_TLS_CERT_FILE",
-		"RELAY_TLS_KEY_FILE", "RELAY_UPSTREAM_TIMEOUT", "RELAY_MAX_REQUEST_BYTES",
+		"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT",
+		"RELAY_UPSTREAM_TIMEOUT", "RELAY_MAX_REQUEST_BYTES",
 		"RELAY_MAX_RESPONSE_BYTES", "RELAY_MAX_CONCURRENT", "RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE", "RELAY_LOG_LEVEL",
 	}
@@ -337,7 +325,6 @@ func TestDefaults(t *testing.T) {
 		{"RELAY_REQUEST_HEADERS", strings.Join(c.RequestHeaders, ","), "Content-Type,Accept"},
 		{"RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ","), "Content-Type,Cache-Control,Pragma"},
 		{"RELAY_PORT", c.Port, 8080},
-		{"RELAY_TLS_CERT_FILE", c.TLSCertificate == nil, true},
 		{"RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout, 10 * time.Second},
 		{"RELAY_MAX_REQUEST_BYTES", c.MaxRequestBytes, int64(65536)},
 		{"RELAY_MAX_RESPONSE_BYTES", c.MaxResponseBytes, int64(65536)},
@@ -502,8 +489,6 @@ func TestPEMFileBound(t *testing.T) {
 		others  []string
 	}{
 		{"RELAY_UPSTREAM_CA_FILE", p.cert, nil},
-		{"RELAY_TLS_CERT_FILE", p.cert, []string{"RELAY_TLS_KEY_FILE", writeFile(t, "key.pem", p.key)}},
-		{"RELAY_TLS_KEY_FILE", p.key, []string{"RELAY_TLS_CERT_FILE", writeFile(t, "cert.pem", p.cert)}},
 	} {
 		base := with(requiredEnv(), tc.others...)
 		t.Run(tc.setting+"/exactly_max_accepted", func(t *testing.T) {
@@ -911,42 +896,6 @@ func TestUpstreamCAFile(t *testing.T) {
 	}
 }
 
-func TestTLSFiles(t *testing.T) {
-	p := pemFiles(t)
-	cert := writeFile(t, "cert.pem", p.cert)
-	key := writeFile(t, "key.pem", p.key)
-	const pair = "RELAY_TLS_CERT_FILE, RELAY_TLS_KEY_FILE"
-	t.Run("matching_pair_accepted", func(t *testing.T) {
-		c := mustLoad(t, with(requiredEnv(), "RELAY_TLS_CERT_FILE", cert, "RELAY_TLS_KEY_FILE", key))
-		if c.TLSCertificate == nil || len(c.TLSCertificate.Certificate) != 1 {
-			t.Errorf("TLSCertificate not loaded")
-		}
-	})
-	for _, tc := range []struct {
-		name, cert, key, setting, reason string
-	}{
-		{"cert_without_key", cert, "", "RELAY_TLS_KEY_FILE", "required when RELAY_TLS_CERT_FILE is set"},
-		{"key_without_cert", "", key, "RELAY_TLS_CERT_FILE", "required when RELAY_TLS_KEY_FILE is set"},
-		{"mismatched_key", cert, writeFile(t, "other.pem", p.otherKey), pair, ""},
-		{"swapped_files", key, cert, pair, ""},
-		{"cert_not_pem", writeFile(t, marker, []byte(marker)), key, pair, ""},
-		{"key_not_pem", cert, writeFile(t, marker, []byte(marker)), pair, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := requiredEnv()
-			if tc.cert != "" {
-				m["RELAY_TLS_CERT_FILE"] = tc.cert
-			}
-			if tc.key != "" {
-				m["RELAY_TLS_KEY_FILE"] = tc.key
-			}
-			if e := loadError(t, m, tc.setting); tc.reason != "" && e.Reason != tc.reason {
-				t.Errorf("reason = %q, want %q", e.Reason, tc.reason)
-			}
-		})
-	}
-}
-
 func TestJWKSURL(t *testing.T) {
 	t.Run("port_and_path_accepted", func(t *testing.T) {
 		mustLoad(t, with(requiredEnv(), "RELAY_JWKS_URL", "https://keys.example:8443/a/jwks.json"))
@@ -1106,35 +1055,28 @@ func TestRepeatedVariable(t *testing.T) {
 	}
 }
 
-func TestHealthTarget(t *testing.T) {
+func TestHealthPort(t *testing.T) {
 	portFile := writeFile(t, "port", []byte("9001\n"))
-	certPathFile := writeFile(t, "cert-path", []byte("/run/secrets/cert.pem\n"))
 	for _, tc := range []struct {
 		name    string
 		env     []string
 		port    int
-		tls     bool
 		setting string // "" when accepted
 	}{
-		{"defaults_need_no_other_setting", nil, 8080, false, ""},
-		{"port", []string{"RELAY_PORT=9000"}, 9000, false, ""},
-		{"port_file", []string{"RELAY_PORT_FILE=" + portFile}, 9001, false, ""},
-		// Only the presence of the certificate setting matters; the file is
-		// not read.
-		{"tls_cert_set", []string{"RELAY_TLS_CERT_FILE=/run/secrets/cert.pem"}, 8080, true, ""},
-		{"tls_cert_file_set", []string{"RELAY_TLS_CERT_FILE_FILE=" + certPathFile}, 8080, true, ""},
-		{"bad_port", []string{"RELAY_PORT=0"}, 0, false, "RELAY_PORT"},
-		{"port_conflict", []string{"RELAY_PORT=9000", "RELAY_PORT_FILE=" + portFile}, 0, false, "RELAY_PORT"},
-		{"empty_tls_cert", []string{"RELAY_TLS_CERT_FILE="}, 0, false, "RELAY_TLS_CERT_FILE"},
+		{"defaults_need_no_other_setting", nil, 8080, ""},
+		{"port", []string{"RELAY_PORT=9000"}, 9000, ""},
+		{"port_file", []string{"RELAY_PORT_FILE=" + portFile}, 9001, ""},
+		{"bad_port", []string{"RELAY_PORT=0"}, 0, "RELAY_PORT"},
+		{"port_conflict", []string{"RELAY_PORT=9000", "RELAY_PORT_FILE=" + portFile}, 0, "RELAY_PORT"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			port, useTLS, err := config.HealthTarget(tc.env)
+			port, err := config.HealthPort(tc.env)
 			if tc.setting != "" {
 				checkError(t, err, tc.setting)
 				return
 			}
-			if err != nil || port != tc.port || useTLS != tc.tls {
-				t.Errorf("HealthTarget = %d, %v, %v; want %d, %v", port, useTLS, err, tc.port, tc.tls)
+			if err != nil || port != tc.port {
+				t.Errorf("HealthPort = %d, %v; want %d", port, err, tc.port)
 			}
 		})
 	}
@@ -1160,14 +1102,14 @@ func TestSummary(t *testing.T) {
 	}{
 		{"defaults", defaults, map[string]string{
 			"RELAY_UPSTREAM_AUTH": "not set", "RELAY_UPSTREAM_CA_FILE": "system bundle",
-			"RELAY_INSTALLATION_IDS": "any", "RELAY_TLS_CERT_FILE": "off", "RELAY_TLS_KEY_FILE": "off",
-			"RELAY_PORT": "8080", "RELAY_LOG_LEVEL": "info", "RELAY_UPSTREAM_TIMEOUT": "10s",
+			"RELAY_INSTALLATION_IDS": "any",
+			"RELAY_PORT":             "8080", "RELAY_LOG_LEVEL": "info", "RELAY_UPSTREAM_TIMEOUT": "10s",
 			"RELAY_ROUTES": "POST /oidc/token", "RELAY_REQUEST_HEADERS": "Content-Type,Accept",
 		}},
 		{"credential_from_env", fromEnv, map[string]string{
 			"RELAY_UPSTREAM_AUTH": "set", "RELAY_UPSTREAM_CA_FILE": "set",
-			"RELAY_INSTALLATION_IDS": "install-1,install-2", "RELAY_TLS_CERT_FILE": "set",
-			"RELAY_LOG_LEVEL": "debug", "RELAY_CLOUD_IDS": cloudID + ",site-2",
+			"RELAY_INSTALLATION_IDS": "install-1,install-2",
+			"RELAY_LOG_LEVEL":        "debug", "RELAY_CLOUD_IDS": cloudID + ",site-2",
 		}},
 		{"credential_from_file", fromFile, map[string]string{"RELAY_UPSTREAM_AUTH": "set (from file)"}},
 	} {

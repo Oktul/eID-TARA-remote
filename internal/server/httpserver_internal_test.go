@@ -4,7 +4,6 @@ package server
 
 import (
 	"bytes"
-	"crypto/tls"
 	"log/slog"
 	"strings"
 	"testing"
@@ -14,7 +13,7 @@ import (
 )
 
 // TestHTTPServerSettingsMatchPlan pins the listener settings of PLAN.md §6
-// R-1, §7 (HTTP/1.1 only inbound) and §8 S-10 (built-in TLS 1.2 or later).
+// R-1 and §7 (HTTP/1.1 only inbound, plain HTTP behind the proxy, D6).
 // The values are spelled out, so changing one breaks this test rather than
 // passing silently; the timeouts cannot be seen over HTTP without waiting
 // them out.
@@ -33,24 +32,18 @@ func TestHTTPServerSettingsMatchPlan(t *testing.T) {
 		{"http1_only", hs.Protocols != nil && hs.Protocols.HTTP1() && !hs.Protocols.HTTP2() && !hs.Protocols.UnencryptedHTTP2()},
 		{"no_general_options_handler", hs.DisableGeneralOptionsHandler},
 		{"error_log_replaced", hs.ErrorLog != nil},
-		{"plain_http_without_certificate", hs.TLSConfig == nil},
+		{"plain_http", hs.TLSConfig == nil},
 	}
 	for _, c := range checks {
 		if !c.ok {
 			t.Errorf("%s: not set", c.name)
 		}
 	}
-
-	s.cfg.TLSCertificate = &tls.Certificate{}
-	tc := s.httpServer().TLSConfig
-	if tc == nil || tc.MinVersion != tls.VersionTLS12 || len(tc.Certificates) != 1 {
-		t.Error("tls_1_2_minimum_with_certificate: not set")
-	}
 }
 
 // TestHTTPServerErrorLogRedacted proves PLAN.md §10 for net/http's own error
-// log. Its messages carry client addresses and raw error text, such as the
-// ALPN names a TLS client offered; only a fixed message reaches the log.
+// log. Its messages carry client addresses and raw error text; only a fixed
+// message reaches the log.
 func TestHTTPServerErrorLogRedacted(t *testing.T) {
 	var out bytes.Buffer
 	s := &Server{

@@ -17,10 +17,8 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
 
 - Forge calls the customer's reverse proxy over HTTPS; the proxy passes the
   request to the relay over plain HTTP inside the customer's host (`PLAN.md`
-  D6). There is no end-to-end encryption in v1. Built-in TLS
-  (`RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE`) exists, but a relay exposed
-  directly is not supported for production until it has the connection
-  limits of `PLAN.md` §6.
+  D6). There is no end-to-end encryption in v1, and the relay itself serves
+  plain HTTP only (`PLAN.md` §6).
 - HTTP/1.1 only, inbound and outbound. HTTP/2 is off (`PLAN.md` §7).
 - No path cleaning, no redirects and no implicit `HEAD` for `GET` happen
   before the checks in section 3.
@@ -427,7 +425,6 @@ only the credential.
 | `RELAY_REQUEST_HEADERS`                     | no       | `Content-Type,Accept`               | Request headers passed on                                               |
 | `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                            |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                             |
-| `RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE` | no       | off                                 | Built-in TLS, 1.2 or later (S-10)                                       |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                         |
 | `RELAY_MAX_REQUEST_BYTES`                   | no       | `65536`                             | Request body limit                                                      |
 | `RELAY_MAX_RESPONSE_BYTES`                  | no       | `65536`                             | Upstream body limit                                                     |
@@ -444,8 +441,8 @@ Validation rules:
 - **Files.** Any setting can instead be read from a file named by
   `<NAME>_FILE`. If both a setting and its `_FILE` variant are provided,
   startup fails with the setting name only. File reads are bounded: 64 KiB
-  for a `_FILE` value, 1 MiB for the files named by `RELAY_UPSTREAM_CA_FILE`,
-  `RELAY_TLS_CERT_FILE` and `RELAY_TLS_KEY_FILE`. A `_FILE` value loses one
+  for a `_FILE` value, 1 MiB for the file named by `RELAY_UPSTREAM_CA_FILE`.
+  A `_FILE` value loses one
   trailing line ending (`\n` or `\r\n`).
 - **Empty values.** A setting that is present but empty is an error, never
   the default.
@@ -474,8 +471,6 @@ Validation rules:
   or more PEM `CERTIFICATE` blocks, each an X.509 certificate, with nothing
   but whitespace between and around them. Comment lines, other block types
   such as `TRUSTED CERTIFICATE` and damaged blocks are refused.
-- **`RELAY_TLS_CERT_FILE` and `RELAY_TLS_KEY_FILE`** are set together or not
-  at all. They name a PEM certificate chain and its matching PEM private key.
 - **Paths** (routes and the base path) may use only ASCII letters, digits
   and `-._~!$&'()*+;=:@/`, with no `.` segment. This refuses all
   percent-encoding, which covers encoded slashes and dots, and the comma

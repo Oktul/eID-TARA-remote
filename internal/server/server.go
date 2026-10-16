@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -479,13 +478,7 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (s *Server) Run(ctx context.Context, ln net.Listener) error {
 	hs := s.httpServer()
 	served := make(chan error, 1)
-	go func() {
-		if hs.TLSConfig != nil {
-			served <- hs.ServeTLS(ln, "", "")
-		} else {
-			served <- hs.Serve(ln)
-		}
-	}()
+	go func() { served <- hs.Serve(ln) }()
 	select {
 	case err := <-served:
 		return err
@@ -511,7 +504,7 @@ func (s *Server) httpServer() *http.Server {
 	// HTTP/1.1 only, inbound and outbound (PLAN.md §7).
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
-	hs := &http.Server{
+	return &http.Server{
 		Handler:           s,
 		ReadHeaderTimeout: ReadHeaderTimeout,
 		ReadTimeout:       ReadTimeout,
@@ -524,17 +517,10 @@ func (s *Server) httpServer() *http.Server {
 		DisableGeneralOptionsHandler: true,
 		ErrorLog:                     log.New(serverErrorWriter{s.log}, "", 0),
 	}
-	if s.cfg.TLSCertificate != nil {
-		hs.TLSConfig = &tls.Config{
-			MinVersion:   tls.VersionTLS12,
-			Certificates: []tls.Certificate{*s.cfg.TLSCertificate},
-		}
-	}
-	return hs
 }
 
-// serverErrorWriter replaces net/http's error log. Its messages (TLS
-// handshake failures, malformed requests) contain client addresses and raw
+// serverErrorWriter replaces net/http's error log. Its messages, about
+// malformed requests for one, contain client addresses and raw
 // error text, which PLAN.md §10 keeps out of the logs, so only a fixed
 // message is written.
 type serverErrorWriter struct{ log *slog.Logger }
