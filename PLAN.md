@@ -925,7 +925,9 @@ promotes unreleased work from `main` into a patch release.
     trace headers, bodies, credentials, configuration errors and upstream
     error text must not appear in logs. Verify valid trace IDs survive, bad
     or repeated ones are replaced and unverified site IDs are omitted.
-- **Before v1.0.0, by hand, results recorded here:**
+- **Before v1.0.0, by hand, results recorded here** (load runs use
+  `go run ./test/load -relay <proxy URL> -probe <relay URL>`, which serves a
+  test JWKS and upstream and prints the settings to restart the relay with):
   - load above the concurrency cap with container memory under 128 MB
     (`test/load`), through the documented proxy limits. Include full-sized
     simultaneous request/response bodies, slow headers, idle connections,
