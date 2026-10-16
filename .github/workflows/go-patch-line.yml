@@ -1,0 +1,255 @@
+# One supported release line of go-patch.yml (PLAN.md §12), called once per
+# line. The jobs that run tests and third-party tools (source, image) get a
+# read-only token, and the jobs with a write scope run none, so a
+# compromised tool never holds a token that could move a release branch or
+# change main's scripts. The candidate reaches the checks and push as a git
+# bundle; push trusts only the commit ID from prepare, which fixes the
+# content, and verifies the update again (go-patch.sh).
+name: go-patch-line
+
+on:
+  workflow_call:
+    inputs:
+      line:
+        description: The release line, X.Y
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  LINE: ${{ inputs.line }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write # a line that waits for a person
+      packages: read # whether the line's latest release is published
+    outputs:
+      candidate: ${{ steps.prepare.outputs.candidate }}
+      base: ${{ steps.prepare.outputs.base }}
+      commit: ${{ steps.prepare.outputs.commit }}
+      tag: ${{ steps.prepare.outputs.tag }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          fetch-depth: 0 # every release branch and tag
+          persist-credentials: false
+      - name: Prepare the update
+        id: prepare
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/go-patch.sh prepare "$LINE" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/candidate.bundle"
+      # Artifacts last as long as GitHub allows a rerun, 30 days, so a rerun
+      # never finds them expired (PLAN.md §12).
+      - name: Hand the candidate to the checks
+        if: ${{ steps.prepare.outputs.candidate == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-patch-candidate-${{ inputs.line }}
+          path: ${{ runner.temp }}/candidate.bundle
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+      # go-patch.yml calls this workflow in a matrix, which cannot pass
+      # per-line outputs, so each line hands its result to the collect job
+      # as an artifact: here when there is nothing to release, otherwise
+      # from push. Every successful line uploads one, so the download never
+      # comes back empty-handed. No job output can pin it, so release.yml
+      # re-checks the tag and commit it names (check_ref; PLAN.md §12,
+      # artifact hand-offs).
+      - name: Record that the line has nothing to release
+        if: ${{ steps.prepare.outputs.candidate != 'true' }}
+        run: |
+          jq -cn --arg line "$LINE" '{line: $line}' >"$RUNNER_TEMP/release-$LINE.json"
+      - name: Hand the result on
+        if: ${{ steps.prepare.outputs.candidate != 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-patch-release-${{ inputs.line }}
+          path: ${{ runner.temp }}/release-${{ inputs.line }}.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  # ci.yml's source checks, on the candidate before the branch moves.
+  source:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.candidate == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Download the candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-patch-candidate-${{ inputs.line }}
+          path: ${{ runner.temp }}/bundle
+      - name: Check out the candidate
+        run: tools/.github/scripts/go-patch.sh unbundle "$RUNNER_TEMP/bundle/candidate.bundle" candidate
+      - name: Set up Go from the candidate's go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: candidate/go.mod
+          cache: false
+      - name: Source checks
+        working-directory: candidate
+        run: ../tools/.github/scripts/source-checks.sh all
+
+  # ci.yml's image checks: each architecture is built and smoke-tested on its
+  # own runner, so the branch never moves to a commit whose arm64 image fails.
+  image:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.candidate == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Download the candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-patch-candidate-${{ inputs.line }}
+          path: ${{ runner.temp }}/bundle
+      - name: Check out the candidate
+        run: tools/.github/scripts/go-patch.sh unbundle "$RUNNER_TEMP/bundle/candidate.bundle" candidate
+      # BuildKit pinned by digest, the same in ci.yml and release.yml.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Build the image
+        working-directory: candidate
+        run: docker buildx build --platform "$PLATFORM" --load --tag relay-go-patch:smoke .
+      - name: Smoke test
+        run: tools/.github/scripts/smoke.sh relay-go-patch:smoke
+
+  push:
+    needs: [prepare, source, image]
+    if: ${{ needs.prepare.outputs.candidate == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the release branch and its tag
+    env:
+      BASE: ${{ needs.prepare.outputs.base }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+      # A rerun of this job after the push finds the tag at COMMIT and
+      # COMMIT on the branch, also when a person has pushed on top of it
+      # since. It needs no bundle, pushes nothing and continues with the
+      # hand-off below, so a failure between the push and the upload never
+      # strands the tag. Without the bundle, any other case fails in the
+      # next step.
+      - name: Download the candidate
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-patch-candidate-${{ inputs.line }}
+          path: ${{ runner.temp }}/bundle
+      - name: Verify the candidate, fast-forward the branch and push the tag
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/go-patch.sh push "$LINE" "$RUNNER_TEMP/bundle/candidate.bundle"
+      - name: Record the release
+        run: |
+          jq -cn --arg line "$LINE" --arg tag "$TAG" --arg commit "$COMMIT" \
+            '{line: $line, tag: $tag, commit: $commit}' >"$RUNNER_TEMP/release-$LINE.json"
+      - name: Hand the result on
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-patch-release-${{ inputs.line }}
+          path: ${{ runner.temp }}/release-${{ inputs.line }}.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  minor:
+    needs: [prepare, push]
+    # After a patch update, so the pull request starts from the new tip.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.push.result == 'success' || needs.push.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the pull request branch
+      pull-requests: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pull request for a newer Go minor
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/go-patch.sh minor "$LINE" "$RUNNER_TEMP/minor"
+
+  report:
+    needs: [prepare, source, image, push, minor]
+    if: ${{ failure() || cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # the scripts
+      issues: write
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Open or update an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source .github/scripts/lib.sh
+          .github/scripts/issue.sh "go-patch: release/$LINE failed" \
+            "go-patch.yml failed for release/$LINE: $(run_url). A failure before the push job leaves the branch untouched. If the push job pushed the branch and tag, rerun the run's failed jobs within 30 days of the run, while GitHub allows a rerun: push then finds them pushed and hands the tag on to the release. Later, release the line by hand with a new tag on release/$LINE."

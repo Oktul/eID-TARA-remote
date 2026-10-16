@@ -759,6 +759,95 @@ promotes unreleased work from `main` into a patch release.
 - **Cost:** a few minutes per run, plus under a minute a day for
   `go-patch.yml`, well within GitHub Free's 2,000 minutes a month for private
   repositories.
+- **Implementation decisions (2026-10-15):**
+  - `ci.yml` runs on pushes to branches, pull requests and `workflow_call`;
+    a tag push runs `release.yml`, which calls `ci.yml` for the exact commit.
+  - Schedules: `go-patch.yml` daily at 05:41 UTC, `weekly.yml` on Mondays
+    at 04:23 UTC.
+  - The cosign identity is `release.yml` at `refs/tags/vX.Y.Z` (a person's
+    tag) or at `refs/heads/main`: scheduled workflows run on the default
+    branch, and GitHub names a called workflow by the caller's ref. A call
+    is accepted only from `main`.
+  - `go-patch.yml` calls `go-patch-line.yml` once per supported line. Tests
+    and third-party tools (source checks, native amd64 and arm64 builds and
+    smoke tests) run in read-only jobs. Only jobs that run no third-party
+    tool hold `contents: write` or `pull-requests: write`. The push job
+    takes the candidate from a git bundle by the commit ID the prepare job
+    reported, re-checks that only the `go.mod` toolchain line and the
+    `Dockerfile` builder line changed against the base, and pushes the
+    branch and tag in one atomic, non-forced push with git hooks off. A
+    rerun after a push hands the existing tag on instead of pushing again
+    when the tag names the tested commit and that commit is on the branch,
+    also after a person has pushed on top of it; it then takes the commit
+    from the branch and needs no bundle (2026-10-16).
+  - A line's base is its latest published release: the newest `vX.Y.*` tag
+    on any ref must be merged into `release/X.Y`, and the
+    `org.opencontainers.image.revision` label of `:X.Y.Z` must equal that
+    tag's commit; otherwise an issue is opened and nothing is built. The
+    next patch number is one above that tag.
+  - The supported minor of a major is its newest `release/X.Y` branch that
+    has a `vX.Y.Z` tag; an unreleased newer branch does not displace it.
+  - The Go-minor job opens its pull request even when an earlier run pushed
+    the branch but failed to open one.
+  - Report jobs hold `contents: read` and `issues: write`; the publish job
+    holds no `issues` scope.
+  - BuildKit (`moby/buildkit`, through `setup-buildx-action`'s
+    `driver-opts` in `ci.yml`, `release.yml` and `go-patch-line.yml`) and
+    the SBOM generator (`docker/buildkit-syft-scanner`, in `release.yml`)
+    are pinned by tag and digest (v0.33.1 and 1.12.0). Dependabot cannot
+    update them, so a person does so in a reviewed pull request, checked at
+    least with each monthly Dependabot review.
+  - Issue titles: `release vX.Y.Z failed`, `go-patch: release/X.Y failed`,
+    `go-patch: release/X.Y has unreleased commits`,
+    `go-patch: release/X.Y: vX.Y.Z is not on the branch`,
+    `go-patch: release/X.Y: vX.Y.Z is not published`,
+    `go-patch: release/X.Y: vX.Y.Z differs from its image`,
+    `go-patch: failed`, `weekly govulncheck: findings`.
+  - `release.yml` accepts an automatic call only for `vX.Y.Z` with Z > 0
+    whose commit has the commit of `vX.Y.(Z-1)` as its only parent and
+    changes only the `go.mod` toolchain line and the `Dockerfile` builder
+    line, on the same Go minor and never an older Go: the check `go-patch.sh`
+    makes before its push (2026-10-16).
+  - Workflow artifacts are kept for 30 days, as long as GitHub allows a run
+    to be rerun, and the issue texts state that window; after it, a person
+    releases the line by hand with a new tag. Artifact names are unique
+    within a run: `go-patch-line.yml`'s carry the line, `release.yml`'s the
+    version (`relay-oci-X.Y.Z`, `release-notes-X.Y.Z`), since `go-patch.yml`
+    calls `release.yml` once per line in one run (2026-10-16).
+  - Artifact hand-offs (2026-10-16): every job of a run holds the run's
+    artifact token and can replace any of its artifacts, including the
+    read-only jobs that run third-party tools (`ci.yml`'s jobs as
+    `release.yml`'s `checks`, `go-patch-line.yml`'s source and image jobs,
+    `release.yml`'s smoke and notes) and, in a `go-patch.yml` run, the other
+    lines' jobs. Only a job's own steps can write its outputs, so each
+    artifact a later job uses is tied to an output of its producer and
+    checked right after the download, before anything uses it:
+    - `go-patch-candidate-X.Y` (git bundle; prepare to source, image and
+      push) is pinned by prepare's commit ID output: the checks check out
+      that ID, and push re-runs the Go-patch check on it.
+    - `relay-oci-X.Y.Z` (OCI archive; build to smoke, notes and publish):
+      after its label check and scan, build outputs the archive's SHA-256
+      and index digest; each consumer checks both, and publish stages,
+      signs and tags only that digest.
+    - `release-notes-X.Y.Z`: notes outputs the file's SHA-256, and publish
+      checks it before creating the release.
+    - `go-patch-release-X.Y` (hand-off record; prepare or push to collect)
+      cannot be pinned, since `go-patch.yml` calls `go-patch-line.yml` in a
+      matrix, which collapses outputs to one value. Known residual risk: a
+      compromised tool can forge or drop it. A forged record can at worst
+      make `go-patch.yml` call `release.yml` for an existing tag on its own
+      line whose commit is a Go patch update of the previous patch tag;
+      `release.yml` checks that from git, not from the record, and its
+      never-overwrite, forward-only tag rules still govern the release. A
+      dropped record leaves the tag unpublished, which the next run reports.
+    - Trusted: the tools that run inside a producing job before it records
+      its outputs (BuildKit, the SBOM generator, govulncheck and the setup
+      actions in build; skopeo and govulncheck in notes; git, skopeo and
+      buildx in prepare), and the pinned actions of the write jobs.
+  - Repository settings needed before `go-patch.yml` can work: Actions may
+    create pull requests, rules on `release/*` let `github-actions[bot]`
+    fast-forward and push `v*` tags, and the ghcr.io package grants this
+    repository write access.
 - **Customers choose how they upgrade** (`docs/SETUP.md`):
   - **pinned** to `:X.Y.Z`, the default in the deploy files: they upgrade by
     hand after reading the release notes;

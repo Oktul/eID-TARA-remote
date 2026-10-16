@@ -1,0 +1,141 @@
+# Weekly govulncheck (PLAN.md §12 weekly.yml): source mode on main and on
+# every supported release line, binary mode on each line's latest published
+# image for both architectures. A finding opens or updates an issue.
+name: weekly
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lines: ${{ steps.lines.outputs.lines }}
+      refs: ${{ steps.lines.outputs.refs }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # every release branch and tag
+          persist-credentials: false
+      - name: List the supported release lines
+        id: lines
+        run: |
+          lines=$(.github/scripts/lines.sh)
+          refs=$(jq -c '["main"] + map("release/" + .)' <<<"$lines")
+          echo "lines=$lines" >>"$GITHUB_OUTPUT"
+          echo "refs=$refs" >>"$GITHUB_OUTPUT"
+
+  source:
+    needs: lines
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.lines.outputs.refs) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Check out ${{ matrix.ref }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+          path: src
+          persist-credentials: false
+      # Each line's own Go pin, because the standard library is what
+      # govulncheck mostly finds.
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: govulncheck
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh govulncheck
+
+  binary:
+    needs: lines
+    if: ${{ needs.lines.outputs.lines != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        line: ${{ fromJSON(needs.lines.outputs.lines) }}
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      LINE: ${{ matrix.line }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      # A cone-mode sparse checkout also includes go.mod and the other
+      # top-level files.
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: false
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # The floating :X.Y tag points at the line's latest verified release.
+      - name: govulncheck -mode=binary on ${{ matrix.line }} linux/${{ matrix.arch }}
+        run: |
+          source tools/.github/scripts/lib.sh
+          image=$(image_name)
+          tags=$(image_tags "$image")
+          if ! tag_in "$tags" "$LINE"; then
+            notice "$image:$LINE is not published yet"
+            exit 0
+          fi
+          tools/.github/scripts/extract-binary.sh "docker://$image:$LINE" "$ARCH" "$RUNNER_TEMP/relay"
+          go run "$GOVULNCHECK" -mode=binary "$RUNNER_TEMP/relay"
+
+  report:
+    needs: [lines, source, binary]
+    if: ${{ failure() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # the scripts
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Open or update an issue
+        run: |
+          source .github/scripts/lib.sh
+          .github/scripts/issue.sh "weekly govulncheck: findings" \
+            "govulncheck reported findings or could not run: $(run_url). A fix in a Go patch ships through go-patch.yml; one that needs a new Go minor is the owner's to merge and tag on every affected line (PLAN.md §12)."

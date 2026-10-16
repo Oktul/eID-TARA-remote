@@ -1,0 +1,338 @@
+# Builds, verifies, signs and publishes a vX.Y.Z release (PLAN.md §12
+# release.yml). A person starts it by pushing a tag; go-patch.yml calls it,
+# because a tag pushed with the workflow token starts no workflow. Build
+# jobs are read-only; only "publish" can write to the repository and the
+# registry, and "report" only to issues.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_call:
+    inputs:
+      tag:
+        description: The vX.Y.Z tag to release
+        type: string
+        required: true
+      commit:
+        description: The commit the tag points to
+        type: string
+        required: true
+      auto:
+        description: An automatic Go patch release with generated notes
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      line: ${{ steps.meta.outputs.line }}
+      commit: ${{ steps.meta.outputs.commit }}
+      auto: ${{ steps.meta.outputs.auto }}
+    steps:
+      # The scripts come from the run's own commit, which for a call from
+      # go-patch.yml is main, not the release commit (PLAN.md §12).
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Resolve the release
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_COMMIT: ${{ inputs.commit }}
+          INPUT_AUTO: ${{ inputs.auto }}
+        run: tools/.github/scripts/release.sh meta
+
+  checks:
+    needs: meta
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.meta.outputs.commit }}
+
+  build:
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Any job of the run, "checks" included, can replace the uploaded
+    # archive; no other job can write these outputs. Every job that
+    # downloads the archive checks it against them first (PLAN.md §12,
+    # artifact hand-offs).
+    outputs:
+      archive_sha256: ${{ steps.archive.outputs.archive_sha256 }}
+      archive_digest: ${{ steps.archive.outputs.archive_digest }}
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      LINE: ${{ needs.meta.outputs.line }}
+      COMMIT: ${{ needs.meta.outputs.commit }}
+      AUTO: ${{ needs.meta.outputs.auto }}
+      ARCHIVE: ${{ github.workspace }}/oci/relay.oci.tar
+    steps:
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.meta.outputs.commit }}
+          path: src
+          fetch-depth: 0 # tags and release branches for the next step
+          persist-credentials: false
+      - name: The tag names this commit, on its release line
+        working-directory: src
+        run: ../tools/.github/scripts/release.sh check-ref
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      # BuildKit and the SBOM generator produce the layers and attestations
+      # that publish signs, so both are pinned by digest, not the floating
+      # defaults (buildx-stable-1, stable-1). Dependabot cannot update them;
+      # keep BuildKit the same in ci.yml and go-patch-line.yml.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Build both architectures into an OCI archive
+        working-directory: src
+        run: |
+          mkdir -p "$(dirname "$ARCHIVE")"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --sbom=generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9 \
+            --provenance=mode=max \
+            --build-arg "VERSION=$VERSION" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$COMMIT" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --output "type=oci,dest=$ARCHIVE" \
+            .
+      - name: Check platforms and labels
+        run: tools/.github/scripts/release.sh labels
+      - name: govulncheck each binary
+        working-directory: src
+        run: ../tools/.github/scripts/release.sh scan
+      - name: Record the verified archive
+        id: archive
+        run: tools/.github/scripts/release.sh record-archive
+      # go-patch.yml calls this workflow once per line within one run, and
+      # artifact names must be unique within a run, so each name carries the
+      # version. Artifacts last as long as GitHub allows a rerun, 30 days, so
+      # a rerun never finds them expired (PLAN.md §12).
+      - name: Upload the verified archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: relay-oci-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/oci/relay.oci.tar
+          if-no-files-found: error
+          retention-days: 30
+
+  # The archived images themselves, each on its own architecture's runner.
+  smoke:
+    needs: [meta, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      ARCH: ${{ matrix.arch }}
+      ARCHIVE: ${{ github.workspace }}/oci/relay.oci.tar
+      ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}
+      ARCHIVE_DIGEST: ${{ needs.build.outputs.archive_digest }}
+    steps:
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Download the verified archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: relay-oci-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/oci
+      - name: The archive is the one build verified
+        run: tools/.github/scripts/release.sh check-archive
+      - name: Load the linux/${{ matrix.arch }} image
+        run: skopeo copy --override-os linux --override-arch "$ARCH" "oci-archive:$ARCHIVE" docker-daemon:relay-release:smoke
+      - name: Smoke test
+        run: tools/.github/scripts/smoke.sh relay-release:smoke
+
+  notes:
+    needs: [meta, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read # the previous release's image, for automatic notes
+    # publish checks its download of the notes against this, as for the
+    # archive (build).
+    outputs:
+      notes_sha256: ${{ steps.notes.outputs.notes_sha256 }}
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      LINE: ${{ needs.meta.outputs.line }}
+      COMMIT: ${{ needs.meta.outputs.commit }}
+      AUTO: ${{ needs.meta.outputs.auto }}
+      ARCHIVE: ${{ github.workspace }}/oci/relay.oci.tar
+      ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}
+      ARCHIVE_DIGEST: ${{ needs.build.outputs.archive_digest }}
+      NOTES: ${{ github.workspace }}/notes/notes.md
+    steps:
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.meta.outputs.commit }}
+          path: src
+          persist-credentials: false
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Download the verified archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: relay-oci-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/oci
+      - name: The archive is the one build verified
+        run: tools/.github/scripts/release.sh check-archive
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Write the release notes
+        id: notes
+        working-directory: src
+        run: |
+          mkdir -p "$(dirname "$NOTES")"
+          ../tools/.github/scripts/release.sh notes "$NOTES"
+      - name: Upload the release notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/notes/notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+  # Publication is serialized per release line, and a rerun resumes rather
+  # than rebuilds (PLAN.md §12). Nothing points at the new digest until it
+  # is signed and verified; the floating tag moves last.
+  publish:
+    needs: [meta, checks, build, smoke, notes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: release-${{ needs.meta.outputs.line }}
+      cancel-in-progress: false
+    permissions:
+      contents: write # the GitHub release
+      packages: write # ghcr.io
+      id-token: write # the keyless cosign signature
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      LINE: ${{ needs.meta.outputs.line }}
+      COMMIT: ${{ needs.meta.outputs.commit }}
+      AUTO: ${{ needs.meta.outputs.auto }}
+      ARCHIVE: ${{ github.workspace }}/oci/relay.oci.tar
+      ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}
+      ARCHIVE_DIGEST: ${{ needs.build.outputs.archive_digest }}
+      NOTES: ${{ github.workspace }}/notes/notes.md
+      NOTES_SHA256: ${{ needs.notes.outputs.notes_sha256 }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Download the verified archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: relay-oci-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/oci
+      - name: Download the release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes-${{ needs.meta.outputs.version }}
+          path: ${{ github.workspace }}/notes
+      - name: The archive and notes are the ones build and notes wrote
+        run: |
+          tools/.github/scripts/release.sh check-archive
+          tools/.github/scripts/release.sh check-notes
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish
+        run: tools/.github/scripts/release.sh publish
+
+  report:
+    needs: [meta, checks, build, smoke, notes, publish]
+    if: ${{ failure() || cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # the scripts
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Open or update an issue
+        run: |
+          source tools/.github/scripts/lib.sh
+          tools/.github/scripts/issue.sh "release $TAG failed" \
+            "The release run failed or was cancelled: $(run_url). Rerun the failed jobs within 30 days of the run, while GitHub allows a rerun and keeps its artifacts: a rerun verifies what was already published and continues, and never rebuilds a published version. Later, release the line by hand with a new tag. The floating tag moves only as the last registry step (PLAN.md §12)."

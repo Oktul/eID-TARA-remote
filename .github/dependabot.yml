@@ -1,0 +1,12 @@
+# GitHub Actions updates only (PLAN.md §12): there are no Go modules, and the
+# golang builder belongs to go-patch.yml. A person reviews and merges every
+# pull request, because actions run in the signing job; nothing merges
+# automatically.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

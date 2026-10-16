@@ -1,0 +1,134 @@
+# Automatic Go patch releases (PLAN.md §12 go-patch.yml, D4). For each
+# supported release line: a new patch of its pinned Go minor, or a new digest
+# of its golang builder, is committed, checked, fast-forwarded and tagged by
+# go-patch-line.yml, then released without review. A newer Go minor becomes a
+# pull request. Only the reviewed workflows on main run this, and main itself
+# is never published.
+name: go-patch
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, so a run never meets a tag whose release is still in
+# progress in another run.
+concurrency:
+  group: go-patch
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lines:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      lines: ${{ steps.lines.outputs.lines }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # every release branch and tag
+          persist-credentials: false
+      - name: List the supported release lines
+        id: lines
+        run: |
+          lines=$(.github/scripts/lines.sh)
+          echo "lines=$lines" >>"$GITHUB_OUTPUT"
+      - name: Open or update an issue
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          source .github/scripts/lib.sh
+          .github/scripts/issue.sh "go-patch: failed" "go-patch.yml could not list the release lines: $(run_url)"
+
+  update:
+    name: update ${{ matrix.line }}
+    needs: lines
+    if: ${{ needs.lines.outputs.lines != '[]' }}
+    # Serializes updates of one line, also against a manual run (PLAN.md §12).
+    concurrency:
+      group: go-patch-${{ matrix.line }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        line: ${{ fromJSON(needs.lines.outputs.lines) }}
+    # The most that any job of go-patch-line.yml may use; each of its jobs
+    # declares only what it needs, and the checks get a read-only token.
+    permissions:
+      contents: write # the release branch, its tag and pull request branches
+      issues: write
+      pull-requests: write
+      packages: read # whether the line's latest release is published
+    uses: ./.github/workflows/go-patch-line.yml
+    with:
+      line: ${{ matrix.line }}
+
+  collect:
+    needs: [lines, update]
+    # Runs even when some lines failed, so the other lines still release.
+    if: ${{ !cancelled() && needs.lines.result == 'success' && needs.lines.outputs.lines != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      releases: ${{ steps.collect.outputs.releases }}
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Download the pushed releases
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-patch-release-*
+          path: ${{ runner.temp }}/releases
+          merge-multiple: true
+      - name: Collect them
+        id: collect
+        run: |
+          releases=$(.github/scripts/go-patch.sh collect "$RUNNER_TEMP/releases")
+          echo "releases=$releases" >>"$GITHUB_OUTPUT"
+      - name: Open or update an issue
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          source .github/scripts/lib.sh
+          .github/scripts/issue.sh "go-patch: failed" "go-patch.yml could not collect the pushed releases: $(run_url). Their tags exist; rerun this run's failed jobs within 30 days of the run, while GitHub allows a rerun and keeps its artifacts, to release them. Later, release each line by hand with a new tag."
+
+  release:
+    name: release ${{ matrix.line }}
+    needs: collect
+    if: ${{ !cancelled() && needs.collect.result == 'success' && needs.collect.outputs.releases != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.collect.outputs.releases) }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      issues: write # release.yml's failure report
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ matrix.tag }}
+      commit: ${{ matrix.commit }}
+      auto: true
