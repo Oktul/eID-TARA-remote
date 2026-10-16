@@ -318,21 +318,9 @@ func FuzzValidPath(f *testing.F) {
 	})
 }
 
-// requestExclusions and responseExclusions list every name PLAN.md §5 bans
-// from an allowlist, in several spellings.
+// responseExclusions lists every name PLAN.md §5 bans from the response
+// allowlist, in several spellings.
 var (
-	requestExclusions = []string{
-		"Authorization", "authorization", "AUTHORIZATION", "Proxy-Authorization",
-		"proxy-authorization", "Host", "host", "Content-Length", "content-length",
-		"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate", "TE", "te",
-		"Trailer", "Transfer-Encoding", "Upgrade", "Forwarded", "forwarded",
-		"X-Forwarded-For", "x-forwarded-for", "X-Forwarded-Host", "X-Forwarded-Proto",
-		"X-FORWARDED-ANYTHING", "X-Forge-Oauth-System", "x-forge-oauth-user",
-		"X-FORGE-OAUTH-TOKEN", "X-B3-TraceId", "x-b3-spanid", "X-B3-Sampled",
-		"X-B3-ParentSpanId", "X-B3-Flags", "Relay-Error", "relay-protocol", "RELAY-VERSION",
-		"Relay-Upstream-Status", "Relay-Anything", "Idempotency-Key", "idempotency-key",
-		"X-Idempotency-Key", "x-idempotency-key",
-	}
 	responseExclusions = []string{
 		"Content-Length", "content-length", "Set-Cookie", "set-cookie", "SET-COOKIE",
 		"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate",
@@ -360,45 +348,17 @@ var (
 	}
 )
 
-func TestParseRequestHeaders(t *testing.T) {
-	t.Run("canonical_names", func(t *testing.T) {
-		got, err := ParseRequestHeaders([]string{"content-type", "ACCEPT", "x-client-hint"})
-		if want := []string{"Content-Type", "Accept", "X-Client-Hint"}; err != nil || !slices.Equal(got, want) {
-			t.Errorf("ParseRequestHeaders = %v, %v; want %v", got, err, want)
-		}
-	})
-	t.Run("exclusions_do_not_overmatch", func(t *testing.T) {
-		names := []string{"Hostname", "Relayed", "Content-Length-Hint", "Authorization-Hint"}
-		if _, err := ParseRequestHeaders(names); err != nil {
-			t.Errorf("ParseRequestHeaders(%q): %v", names, err)
-		}
-	})
-	for _, name := range requestExclusions {
-		t.Run("excluded_"+name, func(t *testing.T) {
-			if got, err := ParseRequestHeaders([]string{"Accept", name}); err != errHeaderExcluded || got != nil {
-				t.Errorf("ParseRequestHeaders(%q) = %v, %v; want %v", name, got, err, errHeaderExcluded)
-			}
-		})
-	}
-	for _, tt := range invalidHeaderNames {
-		t.Run("invalid_name_"+tt.name, func(t *testing.T) {
-			if _, err := ParseRequestHeaders([]string{tt.header}); err != errHeaderName {
-				t.Errorf("ParseRequestHeaders(%q) err = %v, want %v", tt.header, err, errHeaderName)
-			}
-		})
-	}
-	t.Run("duplicate_in_any_case", func(t *testing.T) {
-		if _, err := ParseRequestHeaders([]string{"Accept", "accept"}); err != errHeaderDup {
-			t.Errorf("err = %v, want %v", err, errHeaderDup)
-		}
-	})
-}
-
 func TestParseResponseHeaders(t *testing.T) {
 	t.Run("canonical_names", func(t *testing.T) {
 		got, err := ParseResponseHeaders([]string{"content-type", "cache-control", "PRAGMA", "www-authenticate"})
 		if want := []string{"Content-Type", "Cache-Control", "Pragma", "Www-Authenticate"}; err != nil || !slices.Equal(got, want) {
 			t.Errorf("ParseResponseHeaders = %v, %v; want %v", got, err, want)
+		}
+	})
+	t.Run("exclusions_do_not_overmatch", func(t *testing.T) {
+		names := []string{"Relayed", "Content-Length-Hint", "Set-Cookie2", "Upgrade-Insecure-Requests"}
+		if _, err := ParseResponseHeaders(names); err != nil {
+			t.Errorf("ParseResponseHeaders(%q): %v", names, err)
 		}
 	})
 	for _, name := range responseExclusions {

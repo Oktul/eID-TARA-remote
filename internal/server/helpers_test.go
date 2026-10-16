@@ -5,6 +5,7 @@ package server_test
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -348,6 +349,9 @@ type relayOptions struct {
 	notReady          bool              // do not wait for the first key snapshot
 	lookupNotReady    bool              // the Verifier's key lookups find no snapshot; the cache stays ready
 	run               bool              // serve with Server.Run instead of httptest
+	maxRequestBytes   int64             // 0: server.MaxRequestBytes
+	maxResponseBytes  int64             // 0: forward.MaxResponseBytes
+	maxConcurrent     int               // 0: server.MaxConcurrent
 }
 
 // keySource is what fit.NewVerifier takes: the relay's *fit.Cache or a fake.
@@ -448,17 +452,19 @@ func newRelay(t *testing.T, o relayOptions) *relay {
 		Keys:    r.keys,
 		Logger:  logger,
 		Version: testVersion,
+
+		MaxRequestBytes: cmp.Or(o.maxRequestBytes, server.MaxRequestBytes),
+		MaxConcurrent:   cmp.Or(o.maxConcurrent, server.MaxConcurrent),
 	}
 	if !o.nilForwarder {
 		opts.Forwarder = forward.New(forward.Options{
 			Upstream:         cfg.Upstream,
 			Routes:           cfg.Routes,
 			Credential:       cfg.Credential,
-			RequestHeaders:   cfg.RequestHeaders,
 			ResponseHeaders:  cfg.ResponseHeaders,
 			RootCAs:          upstreamCAs,
 			Timeout:          cfg.UpstreamTimeout,
-			MaxResponseBytes: cfg.MaxResponseBytes,
+			MaxResponseBytes: cmp.Or(o.maxResponseBytes, forward.MaxResponseBytes),
 		})
 	}
 	r.srv = server.New(opts)

@@ -604,12 +604,12 @@ the same request has it in `error`, with the detail in `auth_reason`.
 | no `Relay-*` headers   | The answer came from the proxy or never reached a relay handler: the IP filter, the proxy's timeouts, or a relay the proxy cannot reach.  |
 | `invalid_token`        | The log's `auth_reason` (section 10.4).                                                                                                   |
 | `route_not_allowed`    | `RELAY_ROUTES` differs from the admin-page block (method, path, case), or the request had a query string.                                 |
-| `body_too_large`       | A request over `RELAY_MAX_REQUEST_BYTES`. Token requests are a few KB, so check what is calling.                                         |
+| `body_too_large`       | A request over 64 KiB. Token requests are a few KB, so check what is calling.                                                            |
 | `internal_error`       | A relay bug (`error` `panic`). Report it with the log line; never include tokens or credentials.                                         |
 | `upstream_unreachable` | DNS for the provider host, the outbound firewall, `HTTPS_PROXY` and `NO_PROXY`, `RELAY_UPSTREAM_CA_FILE` (still the provider's CAs?), or a provider outage. Also a provider answer that is not valid HTTP/1.1 or whose header is over 32 KiB: check `RELAY_UPSTREAM_URL` and the routes, and anything that rewrites answers. |
-| `upstream_too_large`   | A provider answer over `RELAY_MAX_RESPONSE_BYTES`. Unusual for token calls; check `RELAY_UPSTREAM_URL` and the routes.                   |
+| `upstream_too_large`   | A provider answer over 64 KiB. Unusual for token calls; check `RELAY_UPSTREAM_URL` and the routes.                                      |
 | `not_ready`            | The signing keys (section 10.2). `/readyz` also answers it while the relay shuts down.                                                    |
-| `too_busy`             | More than `RELAY_MAX_CONCURRENT` requests at once. Look for a flood first; raising the limit is bounded by the payload budget.            |
+| `too_busy`             | More than 50 requests at once. Token calls never come that close; look for a flood.                                                      |
 | `upstream_timeout`     | A slow provider, or a firewall that silently drops outbound packets.                                                                      |
 
 Two more `error` values have no code, because nobody receives an answer:

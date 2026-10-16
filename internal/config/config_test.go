@@ -196,10 +196,6 @@ func table(t *testing.T) []row {
 			func(c *config.Config) bool {
 				return slices.Equal(c.InstallationIDs, []string{"install-1", "install-2"})
 			}},
-		{"RELAY_REQUEST_HEADERS", "content-type, Accept-Language", "Content-Type,X-Forwarded-" + marker,
-			func(c *config.Config) bool {
-				return slices.Equal(c.RequestHeaders, []string{"Content-Type", "Accept-Language"})
-			}},
 		{"RELAY_RESPONSE_HEADERS", "Content-Type,expires", "Content-Type,Relay-" + marker,
 			func(c *config.Config) bool {
 				return slices.Equal(c.ResponseHeaders, []string{"Content-Type", "Expires"})
@@ -208,12 +204,6 @@ func table(t *testing.T) []row {
 			func(c *config.Config) bool { return c.Port == 8443 }},
 		{"RELAY_UPSTREAM_TIMEOUT", "3s", "3s" + marker,
 			func(c *config.Config) bool { return c.UpstreamTimeout == 3*time.Second }},
-		{"RELAY_MAX_REQUEST_BYTES", "1000", "1000" + marker,
-			func(c *config.Config) bool { return c.MaxRequestBytes == 1000 }},
-		{"RELAY_MAX_RESPONSE_BYTES", "2000", "2000" + marker,
-			func(c *config.Config) bool { return c.MaxResponseBytes == 2000 }},
-		{"RELAY_MAX_CONCURRENT", "7", "7" + marker,
-			func(c *config.Config) bool { return c.MaxConcurrent == 7 }},
 		{"RELAY_CLOCK_SKEW", "0s", "1s" + marker,
 			func(c *config.Config) bool { return c.ClockSkew == 0 }},
 		{"RELAY_JWKS_URL", "https://keys.example/jwks.json", "http://" + marker + ".example/jwks.json",
@@ -283,15 +273,14 @@ func TestEverySettingIsRead(t *testing.T) {
 	}
 }
 
-// TestSettingNames pins the 21 setting names of PLAN.md §8 as literals: none
+// TestSettingNames pins the 17 setting names of PLAN.md §8 as literals: none
 // of them, nor its _FILE variant, is reported as unknown.
 func TestSettingNames(t *testing.T) {
 	names := []string{
 		"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL",
 		"RELAY_ROUTES", "RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-		"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT",
-		"RELAY_UPSTREAM_TIMEOUT", "RELAY_MAX_REQUEST_BYTES",
-		"RELAY_MAX_RESPONSE_BYTES", "RELAY_MAX_CONCURRENT", "RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
+		"RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
+		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE", "RELAY_LOG_LEVEL",
 	}
 	var env []string
@@ -322,13 +311,9 @@ func TestDefaults(t *testing.T) {
 		{"RELAY_UPSTREAM_AUTH", c.Credential == nil, true},
 		{"RELAY_UPSTREAM_CA_FILE", c.UpstreamCAs == nil, true},
 		{"RELAY_INSTALLATION_IDS", c.InstallationIDs == nil, true},
-		{"RELAY_REQUEST_HEADERS", strings.Join(c.RequestHeaders, ","), "Content-Type,Accept"},
 		{"RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ","), "Content-Type,Cache-Control,Pragma"},
 		{"RELAY_PORT", c.Port, 8080},
 		{"RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout, 10 * time.Second},
-		{"RELAY_MAX_REQUEST_BYTES", c.MaxRequestBytes, int64(65536)},
-		{"RELAY_MAX_RESPONSE_BYTES", c.MaxResponseBytes, int64(65536)},
-		{"RELAY_MAX_CONCURRENT", c.MaxConcurrent, 50},
 		{"RELAY_CLOCK_SKEW", c.ClockSkew, 10 * time.Second},
 		{"RELAY_JWKS_URL", c.JWKSURL, "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"},
 		{"RELAY_JWKS_REFRESH", c.JWKSRefresh, 6 * time.Hour},
@@ -349,9 +334,6 @@ func TestLimits(t *testing.T) {
 	}
 	if config.MaxCAFileBytes != 1048576 {
 		t.Errorf("MaxCAFileBytes = %d", config.MaxCAFileBytes)
-	}
-	if config.MaxPayloadBudget != 67108864 {
-		t.Errorf("MaxPayloadBudget = %d", config.MaxPayloadBudget)
 	}
 	if config.MaxClockSkew != time.Minute {
 		t.Errorf("MaxClockSkew = %v", config.MaxClockSkew)
@@ -548,24 +530,13 @@ func TestCredentialFromFile(t *testing.T) {
 }
 
 // TestUnsafeHeaderSettings proves that the mandatory exclusions of PLAN.md §5
-// override the allowlists and the credential setting, case-insensitively.
+// override the response allowlist and the credential setting,
+// case-insensitively.
 func TestUnsafeHeaderSettings(t *testing.T) {
-	request := []string{
-		"Authorization", "authorization", "Proxy-Authorization", "Host", "HOST", "Content-Length",
-		"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate", "TE", "Trailer",
-		"Transfer-Encoding", "Upgrade", "Forwarded", "X-Forwarded-For", "x-forwarded-host",
-		"X-Forge-Oauth-System", "x-forge-oauth-user", "X-B3-TraceId", "x-b3-spanid",
-		"Relay-Error", "relay-protocol", "Idempotency-Key", "x-idempotency-key",
-		"Bad Header", "Bad:Header", "Bad\x01", "Ünicode", "Accept,accept",
-	}
-	for _, h := range request {
-		t.Run("request/"+h, func(t *testing.T) {
-			loadError(t, with(requiredEnv(), "RELAY_REQUEST_HEADERS", "Content-Type,"+h), "RELAY_REQUEST_HEADERS")
-		})
-	}
 	response := []string{
 		"Content-Length", "Set-Cookie", "set-cookie", "Connection", "Keep-Alive", "Transfer-Encoding",
 		"Upgrade", "Trailer", "Proxy-Authenticate", "Relay-Upstream-Status", "relay-version", "Relay-Error",
+		"Bad Header", "Bad:Header", "Bad\x01", "Ünicode", "Pragma,pragma",
 	}
 	for _, h := range response {
 		t.Run("response/"+h, func(t *testing.T) {
@@ -666,42 +637,9 @@ func TestDurations(t *testing.T) {
 	}
 }
 
-// TestPayloadBudget proves the R-4/R-12 check of PLAN.md §6, including
-// values whose naive product or sum overflows int64 into an accepted range.
-func TestPayloadBudget(t *testing.T) {
-	const budget = "RELAY_MAX_CONCURRENT, RELAY_MAX_REQUEST_BYTES, RELAY_MAX_RESPONSE_BYTES"
-	for _, tc := range []struct {
-		name                          string
-		request, response, concurrent string
-		ok                            bool
-	}{
-		{"defaults_accepted", "65536", "65536", "50", true},
-		{"exactly_budget_accepted", "33554432", "33554432", "1", true},
-		{"exactly_budget_by_concurrency_accepted", "65536", "65536", "512", true},
-		{"one_slot_over_budget_rejected", "65536", "65536", "513", false},
-		{"one_byte_over_budget_rejected", "33554432", "33554433", "1", false},
-		{"limit_sum_one_over_budget_rejected", "67108864", "1", "1", false},
-		{"limit_sum_exactly_budget_accepted", "67108863", "1", "1", true},
-		{"max_int64_limits_rejected", "9223372036854775807", "9223372036854775807", "1", false},
-		{"sum_overflowing_int64_rejected", "4611686018427387904", "4611686018427387904", "1", false},
-		{"max_int64_concurrency_rejected", "1", "1", "9223372036854775807", false},
-		{"product_wrapping_to_zero_rejected", "2", "2", "4611686018427387904", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := with(requiredEnv(),
-				"RELAY_MAX_REQUEST_BYTES", tc.request,
-				"RELAY_MAX_RESPONSE_BYTES", tc.response,
-				"RELAY_MAX_CONCURRENT", tc.concurrent)
-			if tc.ok {
-				mustLoad(t, m)
-				return
-			}
-			loadError(t, m, budget)
-		})
-	}
-}
-
-func TestCounts(t *testing.T) {
+// TestPortDigits runs the digits-only rule of PLAN.md §8 on RELAY_PORT, the
+// one numeric setting.
+func TestPortDigits(t *testing.T) {
 	bad := []struct{ rule, value string }{
 		{"zero_rejected", "0"},
 		{"negative_rejected", "-1"},
@@ -715,14 +653,9 @@ func TestCounts(t *testing.T) {
 		{"int64_overflow_rejected", "99999999999999999999"},
 		{"non_ascii_digit_rejected", "١"},
 	}
-	for _, name := range []string{"RELAY_MAX_REQUEST_BYTES", "RELAY_MAX_RESPONSE_BYTES", "RELAY_MAX_CONCURRENT"} {
-		for _, tc := range bad {
-			t.Run(name+"/"+tc.rule, func(t *testing.T) {
-				loadError(t, with(requiredEnv(), name, tc.value), name)
-			})
-		}
-		t.Run(name+"/leading_zeros_accepted", func(t *testing.T) {
-			mustLoad(t, with(requiredEnv(), name, "0001"))
+	for _, tc := range bad {
+		t.Run(tc.rule, func(t *testing.T) {
+			loadError(t, with(requiredEnv(), "RELAY_PORT", tc.value), "RELAY_PORT")
 		})
 	}
 }
@@ -1104,7 +1037,7 @@ func TestSummary(t *testing.T) {
 			"RELAY_UPSTREAM_AUTH": "not set", "RELAY_UPSTREAM_CA_FILE": "system bundle",
 			"RELAY_INSTALLATION_IDS": "any",
 			"RELAY_PORT":             "8080", "RELAY_LOG_LEVEL": "info", "RELAY_UPSTREAM_TIMEOUT": "10s",
-			"RELAY_ROUTES": "POST /oidc/token", "RELAY_REQUEST_HEADERS": "Content-Type,Accept",
+			"RELAY_ROUTES": "POST /oidc/token", "RELAY_RESPONSE_HEADERS": "Content-Type,Cache-Control,Pragma",
 		}},
 		{"credential_from_env", fromEnv, map[string]string{
 			"RELAY_UPSTREAM_AUTH": "set", "RELAY_UPSTREAM_CA_FILE": "set",

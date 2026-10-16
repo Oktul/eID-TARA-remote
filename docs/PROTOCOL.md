@@ -54,14 +54,14 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
 
 ## 3. Checks, in order
 
-1. Take a concurrency slot without waiting (`RELAY_MAX_CONCURRENT`), or
-   answer `503 too_busy` (R-5).
+1. Take one of 50 concurrency slots without waiting, or answer
+   `503 too_busy` (R-5).
 2. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
    Otherwise verify the FIT (section 5), or answer `401 invalid_token`.
 3. Match method and path exactly against the routes, or answer
    `404 route_not_allowed`. The FIT check comes first, so a caller without a
    valid token learns nothing about the routes.
-4. Read the body up to `RELAY_MAX_REQUEST_BYTES`, or answer
+4. Read the body up to 64 KiB (65536 bytes), or answer
    `413 body_too_large` with `Connection: close`: the relay closes the
    connection rather than read the rest of a refused body to keep it. If the
    body cannot be read for another reason (the client left, timed out or
@@ -324,11 +324,10 @@ lives 25 s; the relay does not depend on that lifetime.
 
 ### 6.2 Request headers
 
-- `Host` becomes the upstream host. Only the headers in
-  `RELAY_REQUEST_HEADERS` pass (default `Content-Type`, `Accept`);
-  `Authorization`, hop-by-hop headers, `x-forge-oauth-*`, `x-b3-*` and
-  everything else are dropped. Headers named by `Connection` are removed.
-- The mandatory exclusions of section 8 override the allowlist.
+- `Host` becomes the upstream host. Only `Content-Type` and `Accept` pass,
+  a fixed allowlist; `Authorization`, hop-by-hop headers, `x-forge-oauth-*`,
+  `x-b3-*`, idempotency headers and everything else are dropped. Headers
+  named by `Connection` are removed.
 - The configured credential header is set last, so a caller cannot override
   it. The relay adds no `X-Forwarded-For`.
 
@@ -341,7 +340,7 @@ lives 25 s; the relay does not depend on that lifetime.
 
 ### 6.4 Response
 
-- The relay reads the upstream body up to `RELAY_MAX_RESPONSE_BYTES` before
+- The relay reads the upstream body up to 64 KiB (65536 bytes) before
   anything is sent, so an oversize answer becomes a clean
   `502 upstream_too_large` (R-4).
 - The upstream's response header, which is read before that limit applies,
@@ -423,13 +422,9 @@ only the credential.
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)          |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                   |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                       |
-| `RELAY_REQUEST_HEADERS`                     | no       | `Content-Type,Accept`               | Request headers passed on                                               |
 | `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                            |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                             |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                         |
-| `RELAY_MAX_REQUEST_BYTES`                   | no       | `65536`                             | Request body limit                                                      |
-| `RELAY_MAX_RESPONSE_BYTES`                  | no       | `65536`                             | Upstream body limit                                                     |
-| `RELAY_MAX_CONCURRENT`                      | no       | `50`                                | Above this, `503 too_busy`                                              |
 | `RELAY_CLOCK_SKEW`                          | no       | `10s`                               | Tolerance for `exp` and `nbf`                                           |
 | `RELAY_JWKS_URL`                            | no       | Atlassian Forge JWKS (section 5.5)  | Source of signing keys                                                  |
 | `RELAY_JWKS_REFRESH`                        | no       | `6h`                                | Periodic refresh                                                        |
@@ -455,12 +450,7 @@ Validation rules:
 - **Durations** use Go syntax (`10s`, `6h`) and must be positive, except
   that `RELAY_CLOCK_SKEW` may be `0` and is at most 1 minute.
   `RELAY_JWKS_REFRESH` must be less than `RELAY_JWKS_MAX_AGE`.
-- **Sizes and counts** are positive decimal integers. **`RELAY_PORT`** is a
-  decimal port number from 1 to 65535.
-- **Payload budget.** Startup refuses a configuration where
-  `RELAY_MAX_CONCURRENT` × (`RELAY_MAX_REQUEST_BYTES` +
-  `RELAY_MAX_RESPONSE_BYTES`) exceeds 64 MiB, naming the three settings. With
-  the defaults: 50 × 128 KiB = 6.25 MiB.
+- **`RELAY_PORT`** is a decimal port number from 1 to 65535, digits only.
 - **`RELAY_LOG_LEVEL`** is matched exactly.
 - **`RELAY_UPSTREAM_URL`** starts with `https://` and must have a host, a
   port from 1 to 65535 if it names one, and no userinfo, query or fragment.
@@ -478,11 +468,7 @@ Validation rules:
   that separates `RELAY_ROUTES` items. Route methods are `GET`, `POST`,
   `PUT`, `PATCH` and `DELETE`.
 - **Header names** are validated. Mandatory exclusions override the
-  allowlists and are applied case-insensitively:
-  - `RELAY_REQUEST_HEADERS` cannot allow `Authorization`,
-    `Proxy-Authorization`, `Host`, `Content-Length`, hop-by-hop headers,
-    `Forwarded`, `X-Forwarded-*`, `x-forge-oauth-*`, `x-b3-*`, `Relay-*`,
-    `Idempotency-Key` or `X-Idempotency-Key`;
+  allowlist and are applied case-insensitively:
   - `RELAY_RESPONSE_HEADERS` cannot include hop-by-hop headers,
     `Content-Length`, `Set-Cookie` or `Relay-*`;
   - `RELAY_UPSTREAM_AUTH` is `Name: value`; spaces and tabs around the value

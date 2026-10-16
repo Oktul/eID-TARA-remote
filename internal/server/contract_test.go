@@ -9,11 +9,33 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"eid-forge-remote/internal/forward"
+	"eid-forge-remote/internal/server"
 )
 
 // The contract fixtures of PLAN.md §4.6, exercised over HTTP. Header names,
 // error codes, setting names and bodies are spelled as literals: changing
 // one of them here is a protocol change (CONTRIBUTING.md, Tests).
+
+// TestContractFixedLimits pins the limits of PLAN.md D8 and §6, which are
+// fixed rather than settings (owner, 2026-10-16): 64 KiB bodies each way
+// and 50 requests at once. A relay built with them accepts a request body
+// of exactly 64 KiB and refuses one byte more.
+func TestContractFixedLimits(t *testing.T) {
+	if server.MaxRequestBytes != 65536 || forward.MaxResponseBytes != 65536 || server.MaxConcurrent != 50 {
+		t.Errorf("limits = %d, %d, %d; want 65536, 65536, 50",
+			server.MaxRequestBytes, forward.MaxResponseBytes, server.MaxConcurrent)
+	}
+	r := newRelay(t, relayOptions{})
+	fit := validFIT(t)
+	if got := r.do(t, "POST", "/oidc/token", bearer(fit), strings.NewReader(strings.Repeat("a", 65536))); got.status != 200 {
+		t.Errorf("64 KiB body: status %d, want 200", got.status)
+	}
+	if got := r.do(t, "POST", "/oidc/token", bearer(fit), strings.NewReader(strings.Repeat("a", 65537))); got.status != 413 {
+		t.Errorf("64 KiB + 1 body: status %d, want 413", got.status)
+	}
+}
 
 // TestContractRelayErrors covers every relay error code of PLAN.md §4.3 with
 // its status, headers and exact body. Relay-Version appears only on answers
@@ -35,7 +57,7 @@ func TestContractRelayErrors(t *testing.T) {
 			return r.do(t, "POST", "/oidc/other", bearer(validFIT(t)), nil)
 		}},
 		{"body_too_large", 413, "body_too_large", true, func(t *testing.T) reply {
-			r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "16"}})
+			r := newRelay(t, relayOptions{maxRequestBytes: 16})
 			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), strings.NewReader(strings.Repeat("a", 17)))
 		}},
 		{"internal_error", 500, "internal_error", true, func(t *testing.T) reply {
@@ -47,7 +69,7 @@ func TestContractRelayErrors(t *testing.T) {
 			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil)
 		}},
 		{"upstream_too_large", 502, "upstream_too_large", true, func(t *testing.T) reply {
-			r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_RESPONSE_BYTES": "16"}})
+			r := newRelay(t, relayOptions{maxResponseBytes: 16})
 			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil)
 		}},
 		{"not_ready", 503, "not_ready", false, func(t *testing.T) reply {
@@ -61,7 +83,7 @@ func TestContractRelayErrors(t *testing.T) {
 		{"too_busy", 503, "too_busy", false, func(t *testing.T) reply {
 			g := newGate()
 			defer g.release()
-			r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_CONCURRENT": "1"}, upstream: g.handler})
+			r := newRelay(t, relayOptions{maxConcurrent: 1, upstream: g.handler})
 			fit := validFIT(t)
 			held := make(chan error, 1)
 			go func() {

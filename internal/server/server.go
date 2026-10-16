@@ -38,6 +38,17 @@ const (
 	MaxHeaderBytes    = 16 << 10
 )
 
+// Fixed limits sized for token calls (PLAN.md D8, §6 R-4 and R-5; owner,
+// 2026-10-16). With forward.MaxResponseBytes they bound the bodies held at
+// once to MaxConcurrent × 128 KiB = 6.25 MiB.
+const (
+	// MaxRequestBytes is the request body limit; a token request is a few KB.
+	MaxRequestBytes = 64 << 10
+	// MaxConcurrent is the number of requests forwarded at once; above it,
+	// 503 too_busy.
+	MaxConcurrent = 50
+)
+
 // ProtocolVersion is the relay protocol this code speaks (PLAN.md §4).
 const ProtocolVersion = 1
 
@@ -93,6 +104,10 @@ type Options struct {
 	Forwarder *forward.Forwarder
 	Logger    *slog.Logger
 	Version   string // the release, sent as Relay-Version
+	// MaxRequestBytes and MaxConcurrent are the constants of the same name;
+	// tests pass smaller limits. Zero refuses every body or every request.
+	MaxRequestBytes int64
+	MaxConcurrent   int
 }
 
 // Server is the relay's http.Handler and its listener lifecycle.
@@ -105,6 +120,7 @@ type Server struct {
 	version  string
 	info     []byte // the /relay/v1/info body, fixed at startup
 
+	maxRequestBytes int64
 	// slots is the forwarding semaphore (PLAN.md §6 R-5). Health checks
 	// bypass it, so a full relay still answers its probes.
 	slots chan struct{}
@@ -143,7 +159,9 @@ func New(o Options) *Server {
 		log:      o.Logger,
 		version:  o.Version,
 		info:     bytes.TrimSuffix(info.Bytes(), []byte("\n")),
-		slots:    make(chan struct{}, o.Config.MaxConcurrent),
+
+		maxRequestBytes: o.MaxRequestBytes,
+		slots:           make(chan struct{}, o.MaxConcurrent),
 	}
 }
 
@@ -254,7 +272,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	rec.route = route.String()
 
 	// Step 4: the body, bounded (R-4).
-	body, err := readBody(w, r, s.cfg.MaxRequestBytes)
+	body, err := readBody(w, r, s.maxRequestBytes)
 	// Restart the write deadline, which net/http started at the request
 	// header, whether the body was read or refused: a slow body or key wait
 	// must not eat the answer's time, or a token exchange could succeed

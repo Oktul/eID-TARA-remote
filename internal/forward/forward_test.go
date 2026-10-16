@@ -118,7 +118,6 @@ func newForwarder(t *testing.T, base string, edit func(*Options)) *Forwarder {
 	o := Options{
 		Upstream:         u,
 		Routes:           []Route{tokenRoute},
-		RequestHeaders:   []string{"Content-Type", "Accept"},
 		ResponseHeaders:  []string{"Content-Type", "Cache-Control", "Pragma"},
 		RootCAs:          trustPool(t),
 		Timeout:          testTimeout,
@@ -407,39 +406,16 @@ func TestForwardRequestHeaders(t *testing.T) {
 		}
 	})
 
-	t.Run("excluded_headers_never_pass_even_if_allowlisted", func(t *testing.T) {
-		// Options built without ParseRequestHeaders, as a bug might.
-		excluded := []string{
-			"Authorization", "authorization", "Proxy-Authorization", "Host", "Content-Length",
-			"Forwarded", "X-Forwarded-For", "x-forwarded-host", "X-Forge-Oauth-System",
-			"x-forge-oauth-user", "X-B3-Traceid", "x-b3-spanid", "Relay-Error",
-			"Idempotency-Key", "X-Idempotency-Key", "Connection", "Keep-Alive",
-			"Proxy-Connection", "Te", "Trailer", "Transfer-Encoding", "Upgrade",
-		}
-		in := http.Header{}
-		for _, name := range excluded {
-			in.Set(name, secretMarker)
-		}
-		h, got := recorder(t, nil)
-		s := newUpstream(t, h)
-		f := newForwarder(t, s.URL, func(o *Options) { o.RequestHeaders = excluded })
-		mustForward(t, f, tokenRoute, in, tokenBody)
-		wantUpstreamHeader(t, (<-got).header, framing)
-	})
-
 	t.Run("connection_nominated_headers_dropped", func(t *testing.T) {
 		in := http.Header{
 			// Case-insensitive, OWS around tokens, several fields.
-			"Connection":    {"keep-alive, ACCEPT", " x-client-hint\t"},
-			"Accept":        {"application/json"},
-			"X-Client-Hint": {"nominated"},
-			"Content-Type":  {"application/x-www-form-urlencoded"},
+			"Connection":   {"keep-alive, x-client-hint", " ACCEPT\t"},
+			"Accept":       {"application/json"},
+			"Content-Type": {"application/x-www-form-urlencoded"},
 		}
 		h, got := recorder(t, nil)
 		s := newUpstream(t, h)
-		f := newForwarder(t, s.URL, func(o *Options) {
-			o.RequestHeaders = []string{"Content-Type", "Accept", "X-Client-Hint"}
-		})
+		f := newForwarder(t, s.URL, nil)
 		mustForward(t, f, tokenRoute, in, tokenBody)
 		want := framing.Clone()
 		want["Content-Type"] = []string{"application/x-www-form-urlencoded"}
@@ -448,10 +424,9 @@ func TestForwardRequestHeaders(t *testing.T) {
 
 	t.Run("credential_replaces_caller_header", func(t *testing.T) {
 		tests := []struct {
-			name      string
-			allowlist []string
-			cred      Credential
-			in        http.Header
+			name string
+			cred Credential
+			in   http.Header
 		}{
 			{
 				name: "authorization_replaces_fit",
@@ -459,26 +434,21 @@ func TestForwardRequestHeaders(t *testing.T) {
 				in:   http.Header{"Authorization": {"Bearer " + secretMarker}},
 			},
 			{
-				name:      "allowlisted_name_replaced_not_joined",
-				allowlist: []string{"X-Api-Key"},
-				cred:      Credential{Name: "X-Api-Key", Value: newSecret("synthetic-credential")},
-				in:        http.Header{"X-Api-Key": {secretMarker, secretMarker}},
+				name: "allowlisted_name_replaced_not_joined",
+				cred: Credential{Name: "Accept", Value: newSecret("synthetic-credential")},
+				in:   http.Header{"Accept": {secretMarker, secretMarker}},
 			},
 			{
-				name:      "connection_nomination_cannot_remove_it",
-				allowlist: []string{"X-Api-Key"},
-				cred:      Credential{Name: "X-Api-Key", Value: newSecret("synthetic-credential")},
-				in:        http.Header{"Connection": {"X-Api-Key, Authorization"}, "X-Api-Key": {secretMarker}},
+				name: "connection_nomination_cannot_remove_it",
+				cred: Credential{Name: "X-Api-Key", Value: newSecret("synthetic-credential")},
+				in:   http.Header{"Connection": {"X-Api-Key, Authorization"}, "X-Api-Key": {secretMarker}},
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				h, got := recorder(t, nil)
 				s := newUpstream(t, h)
-				f := newForwarder(t, s.URL, func(o *Options) {
-					o.RequestHeaders = tt.allowlist
-					o.Credential = &tt.cred
-				})
+				f := newForwarder(t, s.URL, func(o *Options) { o.Credential = &tt.cred })
 				mustForward(t, f, tokenRoute, tt.in, tokenBody)
 				want := framing.Clone()
 				want[tt.cred.Name] = []string{tt.cred.Value.Reveal()}
@@ -1077,11 +1047,8 @@ func TestForwardDoesNotReplayTokenPOST(t *testing.T) {
 		},
 		{
 			// Go treats a POST with either header as idempotent and replays
-			// it, so they must never be sent, whatever the allowlist says.
-			name: "reused_connection_idempotency_headers_allowlisted", route: tokenRoute, answered: 1,
-			edit: func(o *Options) {
-				o.RequestHeaders = append(o.RequestHeaders, "Idempotency-Key", "X-Idempotency-Key")
-			},
+			// it, so they must never be sent.
+			name: "reused_connection_idempotency_headers_dropped", route: tokenRoute, answered: 1,
 			in:      http.Header{"Idempotency-Key": {"synthetic"}, "X-Idempotency-Key": {"synthetic"}},
 			wantErr: ErrUnreachable, wantConns: []bool{true},
 			wantSeen: []string{"POST /oidc/token " + tokenBody, "POST /oidc/token " + tokenBody2},

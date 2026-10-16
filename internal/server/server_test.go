@@ -28,7 +28,7 @@ import (
 // routes, and the route before the body. No rejected request reaches the
 // upstream.
 func TestCheckOrder(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "1024"}})
+	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
 	fit := validFIT(t)
 	otherKey := signFIT(t, testKeys().other, fitClaims())
 	big := strings.Repeat("a", 4096)
@@ -78,7 +78,7 @@ func TestCheckOrder(t *testing.T) {
 func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	g := newGate()
 	defer g.release()
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_CONCURRENT": "2"}, upstream: g.handler})
+	r := newRelay(t, relayOptions{maxConcurrent: 2, upstream: g.handler})
 	fit := validFIT(t)
 	held := make(chan error, 2)
 	for range 2 {
@@ -227,12 +227,12 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 	}
 	r := newRelay(t, relayOptions{
 		env: map[string]string{
-			"RELAY_JWKS_REFRESH":   "40ms",
-			"RELAY_JWKS_MAX_AGE":   "400ms",
-			"RELAY_MAX_CONCURRENT": "1",
+			"RELAY_JWKS_REFRESH": "40ms",
+			"RELAY_JWKS_MAX_AGE": "400ms",
 		},
-		upstream: g.handler,
-		jwks:     jwks,
+		maxConcurrent: 1,
+		upstream:      g.handler,
+		jwks:          jwks,
 	})
 	fit := validFIT(t)
 	held := make(chan error, 1)
@@ -331,13 +331,13 @@ func TestRequestTargetsRefusedAfterFIT(t *testing.T) {
 type opaqueReader struct{ io.Reader }
 
 // TestRequestBodyLimit proves PLAN.md §4.2 step 4 for declared and chunked
-// bodies, at and over RELAY_MAX_REQUEST_BYTES. An oversized body never
+// bodies, at and over the request limit. An oversized body never
 // reaches the upstream.
 func TestRequestBodyLimit(t *testing.T) {
 	var mu sync.Mutex
 	var received []int
 	r := newRelay(t, relayOptions{
-		env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "1024"},
+		maxRequestBytes: 1024,
 		upstream: func(w http.ResponseWriter, req *http.Request) {
 			b, _ := io.ReadAll(req.Body) // the length is what the test checks
 			mu.Lock()
@@ -381,7 +381,7 @@ func TestRequestBodyLimit(t *testing.T) {
 // connection instead of keeping it for another request (PLAN.md §6, R-4).
 // The request asks for keep-alive, so the close is the relay's own.
 func TestOversizedChunkedBodyClosesConnection(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "1024"}})
+	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
 	conn, err := net.Dial("tcp", r.addr)
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +424,7 @@ func TestOversizedChunkedBodyClosesConnection(t *testing.T) {
 // half-closes and waits first only when http.MaxBytesReader reaches its own
 // ResponseWriter (readBody).
 func TestOversizedBodyAnswerSurvivesPipelinedRequest(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "1024"}})
+	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
 	fit := validFIT(t)
 	body, next := strings.Repeat("a", 2048), strings.Repeat("b", 1<<20)
 	request := fmt.Sprintf("POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
@@ -597,7 +597,7 @@ func TestUpstreamFailures(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			c.opts.env = map[string]string{"RELAY_MAX_RESPONSE_BYTES": "1024"}
+			c.opts.maxResponseBytes = 1024
 			r := newRelay(t, c.opts)
 			expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil), 502, c.code, true)
 			line := r.logs.waitRequests(t, 1)[0]
@@ -619,8 +619,8 @@ func TestUpstreamFailures(t *testing.T) {
 	t.Run("at_limit", func(t *testing.T) {
 		at := over[:1024]
 		r := newRelay(t, relayOptions{
-			env:      map[string]string{"RELAY_MAX_RESPONSE_BYTES": "1024"},
-			upstream: func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, at) },
+			maxResponseBytes: 1024,
+			upstream:         func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, at) },
 		})
 		if got := r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil); got.status != http.StatusOK || got.body != at {
 			t.Errorf("got %d with %d bytes, want 200 with 1024", got.status, len(got.body))
@@ -983,7 +983,7 @@ func TestLogMethods(t *testing.T) {
 // TestRouteLoggedOnlyWhenMatched proves PLAN.md §10: route is the fixed
 // "unmatched" marker until a configured route or relay endpoint matches.
 func TestRouteLoggedOnlyWhenMatched(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "16"}})
+	r := newRelay(t, relayOptions{maxRequestBytes: 16})
 	fit := validFIT(t)
 	cases := []struct {
 		name, method, target string

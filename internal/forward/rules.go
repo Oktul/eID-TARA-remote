@@ -183,20 +183,6 @@ func (u Upstream) URL(routePath string) string { return u.origin + u.basePath + 
 // secret, for the startup summary and /relay/v1/info.
 func (u Upstream) String() string { return u.origin + u.basePath }
 
-// requestExcluded reports request headers that no allowlist may pass
-// (PLAN.md §5): credentials, routing, framing, hop-by-hop, idempotency,
-// tracing and relay-owned headers. name is canonical.
-func requestExcluded(name string) bool {
-	switch name {
-	case "Authorization", "Host", "Content-Length", "Forwarded",
-		"Idempotency-Key", "X-Idempotency-Key":
-		return true
-	}
-	return hopByHop(name) || hasPrefixFold(name, "X-Forwarded-") ||
-		hasPrefixFold(name, "X-Forge-Oauth-") || hasPrefixFold(name, "X-B3-") ||
-		hasPrefixFold(name, "Relay-")
-}
-
 // responseExcluded reports response headers that no allowlist may pass
 // (PLAN.md §5). The relay computes framing and owns the Relay-* headers, so
 // an upstream can never impersonate a relay error. name is canonical.
@@ -234,27 +220,18 @@ func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
-// ParseRequestHeaders validates RELAY_REQUEST_HEADERS and returns canonical
-// names. The mandatory exclusions of PLAN.md §5 override the allowlist, so
-// an excluded name is a startup error rather than silently dropped.
-func ParseRequestHeaders(names []string) ([]string, error) {
-	return parseHeaders(names, requestExcluded)
-}
-
-// ParseResponseHeaders validates RELAY_RESPONSE_HEADERS, as
-// ParseRequestHeaders does for requests.
+// ParseResponseHeaders validates RELAY_RESPONSE_HEADERS and returns
+// canonical names. The mandatory exclusions of PLAN.md §5 override the
+// allowlist, so an excluded name is a startup error rather than silently
+// dropped.
 func ParseResponseHeaders(names []string) ([]string, error) {
-	return parseHeaders(names, responseExcluded)
-}
-
-func parseHeaders(names []string, excluded func(string) bool) ([]string, error) {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
 		if !validToken(n) {
 			return nil, errHeaderName
 		}
 		c := textproto.CanonicalMIMEHeaderKey(n)
-		if excluded(c) {
+		if responseExcluded(c) {
 			return nil, errHeaderExcluded
 		}
 		if slices.Contains(out, c) {

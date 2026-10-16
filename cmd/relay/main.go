@@ -131,11 +131,10 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		Upstream:         cfg.Upstream,
 		Routes:           cfg.Routes,
 		Credential:       cfg.Credential,
-		RequestHeaders:   cfg.RequestHeaders,
 		ResponseHeaders:  cfg.ResponseHeaders,
 		RootCAs:          cfg.UpstreamCAs,
 		Timeout:          cfg.UpstreamTimeout,
-		MaxResponseBytes: cfg.MaxResponseBytes,
+		MaxResponseBytes: forward.MaxResponseBytes,
 	})
 	srv := server.New(server.Options{
 		Config:    cfg,
@@ -144,6 +143,9 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		Forwarder: fwd,
 		Logger:    logger,
 		Version:   version,
+
+		MaxRequestBytes: server.MaxRequestBytes,
+		MaxConcurrent:   server.MaxConcurrent,
 	})
 
 	var lc net.ListenConfig

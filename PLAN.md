@@ -12,7 +12,8 @@ gate, source CI on GitHub and the Phase 2 release verifications. Adding
 `remotes` to the Forge app's main line still needs the owner's approval
 (Oktul eID SSO, `PLAN.md` §4.7). The `claude/simplify` branch
 (2026-10-16) removes the site fallback and built-in TLS, refuses exponent
-dates and shortens config loading (owner decisions in §4.4, §6 and §8); it
+dates, fixes the body, concurrency and request-header limits and shortens
+config loading (owner decisions in §4.4, §5, §6, §8 and D8); it
 has had review round 1 only._
 
 ## 1. What it is
@@ -51,7 +52,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D5  | **Every relay is pinned to the customer's site (`cloudId`) and Forge environment. Both are required settings.**        | The FIT's audience is our app ID, shared by every install. Without a pin, another site's admin could point their install at this relay and use the customer's IP and credential.                                                               |
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Keeps upstream status distinct from relay errors: a provider's `401 invalid_client` must not look like the relay's `401 invalid_token`. Phase 0 found that backend `invokeRemote` also returns non-2xx answers intact (§14, 2026-10-16); v1 wrapping stays unchanged. |
-| D8  | **Defaults sized for token calls:** 10 s upstream timeout, 64 KiB request and response limits.                         | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Also keeps the memory budget far below 128 MB (§6).                                                                                           |
+| D8  | **Limits sized for token calls:** 10 s upstream timeout; 64 KiB request and response limits and 50 concurrent requests, fixed rather than settings (owner, 2026-10-16). | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Fixed limits keep the memory bound a constant far below 128 MB (§6) and remove three settings and their budget check. |
 | D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
 | D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback ships disabled, and no gate counts as passed until it is recorded here.                       |
 
@@ -347,19 +348,18 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   for byte with the raw request target, so a request breaking any of these
   rules cannot match. Route methods are `GET`, `POST`, `PUT`, `PATCH` and
   `DELETE`.
-- **Request headers:** `Host` becomes the upstream host. `Authorization`,
-  hop-by-hop headers, `x-forge-oauth-*`, `x-b3-*` and everything else are
-  dropped. Only the allowed headers pass (default `Content-Type`, `Accept`).
-  The configured credential header is set last, so a caller cannot override
-  it. The relay adds no `X-Forwarded-For`.
-  Mandatory exclusions override configurable allowlists: reject settings that
-  allow `Authorization`, `Proxy-Authorization`, `Host`, `Content-Length`,
-  hop-by-hop headers, `Forwarded`, `X-Forwarded-*`, `x-forge-oauth-*`,
-  `x-b3-*`, `Relay-*`, `Idempotency-Key` or `X-Idempotency-Key`. Apply
-  exclusions case-insensitively and remove any headers named by `Connection`.
+- **Request headers:** `Host` becomes the upstream host. Only `Content-Type`
+  and `Accept` pass from the caller, a fixed allowlist since a token call
+  needs no other (owner, 2026-10-16; `RELAY_REQUEST_HEADERS` was removed
+  before the first release). `Authorization`, hop-by-hop headers,
+  `x-forge-oauth-*`, `x-b3-*`, idempotency headers and everything else are
+  dropped, and so is an allowed header that `Connection` names. The
+  configured credential header is set last, so a caller cannot override it.
+  The relay adds no `X-Forwarded-For`.
   The credential setting may supply `Authorization`, but cannot supply
-  routing, framing, hop-by-hop, idempotency or relay-owned headers. Validate
-  header names and reject CR/LF in configured values without printing them.
+  routing, framing, hop-by-hop, idempotency or relay-owned headers. Apply
+  exclusions case-insensitively. Validate header names and reject CR/LF in
+  configured values without printing them.
   The credential value also refuses every other control character except
   tab (2026-10-15).
 - **Credentials:**
@@ -410,7 +410,7 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | R-1         | `http.Server` with `ReadHeaderTimeout` 5 s, `ReadTimeout` 10 s, `WriteTimeout` = upstream timeout + 5 s, `IdleTimeout` 60 s, `MaxHeaderBytes` 16 KiB.                                                                                                                        |
 | R-2, R-3    | One context per request with the upstream timeout. It ends when the caller disconnects.                                                                                                                                                                                      |
-| R-4, R-12   | Bounded reads on both sides. **Startup refuses a configuration where concurrency × (request limit + response limit) exceeds 64 MiB**, naming the three settings. With the defaults: 50 × 128 KiB = 6.25 MiB. `GOMEMLIMIT=96MiB` in the image; the container limit is 128 MB. |
+| R-4, R-12   | Bounded reads on both sides, with fixed limits (D8): 50 concurrent requests × (64 KiB request + 64 KiB response) = 6.25 MiB of bodies at once. `GOMEMLIMIT=96MiB` in the image; the container limit is 128 MB. |
 | R-5         | A semaphore (buffered channel) acquired without waiting.                                                                                                                                                                                                                     |
 | R-6         | A recover middleware turns a panic into `500 internal_error` and a log line with the error class only. Handlers start no goroutines, so every panic is caught there.                                                                                                         |
 | R-7         | The key refresh loop recovers from panics and keeps its backoff schedule.                                                                                                                                                                                                    |
@@ -432,9 +432,9 @@ body to keep the connection; when the limit is hit while reading, net/http
 half-closes and waits briefly first, so a client still sending reads the
 413 rather than a reset.
 
-The payload-budget calculation is a partial budget, not a proof of total
-memory use. It must use overflow-safe arithmetic and leave space for buffer
-growth, HTTP/TLS state, goroutine stacks and the runtime. `GOMEMLIMIT` is a
+The 6.25 MiB body bound is a partial budget, not a proof of total memory
+use: buffer growth, HTTP/TLS state, goroutine stacks and the runtime come on
+top. `GOMEMLIMIT` is a
 soft GC target, not a hard cap. Acceptance measures container memory under
 the complete workload (§13).
 
@@ -527,8 +527,8 @@ followed by a lowercase UUID; other IDs are 1–256 printable ASCII characters
 other than space and comma. Durations use Go syntax (`10s`, `6h`) and must
 be positive, except that `RELAY_CLOCK_SKEW` may be `0`; it is at most
 1 minute (owner, 2026-10-16), since FITs live about 25 s and a larger skew
-would in effect switch `exp` and `nbf` off. Sizes and counts are positive
-decimal integers. `RELAY_LOG_LEVEL` is matched exactly.
+would in effect switch `exp` and `nbf` off. `RELAY_LOG_LEVEL` is matched
+exactly.
 `RELAY_PORT` and a port in `RELAY_UPSTREAM_URL` or `RELAY_JWKS_URL` are
 1–65535. Both URLs start with the literal `https://`, and `RELAY_JWKS_URL`,
 like the upstream URL, has a host and no userinfo, query or fragment, since
@@ -548,13 +548,9 @@ empty (2026-10-16).
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)         |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                  |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                      |
-| `RELAY_REQUEST_HEADERS`                     | no       | `Content-Type,Accept`               | Request headers passed on                                              |
 | `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                           |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                            |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                        |
-| `RELAY_MAX_REQUEST_BYTES`                   | no       | `65536`                             | Request body limit                                                     |
-| `RELAY_MAX_RESPONSE_BYTES`                  | no       | `65536`                             | Upstream body limit                                                    |
-| `RELAY_MAX_CONCURRENT`                      | no       | `50`                                | Above this, `503 too_busy`                                             |
 | `RELAY_CLOCK_SKEW`                          | no       | `10s`                               | Tolerance for `exp` and `nbf`                                          |
 | `RELAY_JWKS_URL`                            | no       | Atlassian Forge JWKS                | Source of signing keys                                                 |
 | `RELAY_JWKS_REFRESH`                        | no       | `6h`                                | Periodic refresh                                                       |
@@ -957,8 +953,8 @@ promotes unreleased work from `main` into a patch release.
     spoofed relay response headers, and no token POST replay after a request
     was delivered but the response was lost.
   - **Config:** every setting named without its value in its error, `_FILE`
-    conflicts and bounded file reads, unsafe header settings, JWKS age
-    validation and overflow-safe memory budget checks.
+    conflicts and bounded file reads, unsafe header settings and JWKS age
+    validation.
   - **Health, logs and contract:** health remains live and locally responsive
     while the forwarding cap is full; readiness reflects usable-key age and
     shutdown. Exercise §4.6 fixtures over HTTP, plus transport-level malformed

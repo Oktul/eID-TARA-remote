@@ -62,7 +62,7 @@ func TestSlowBodyStillGetsUpstreamAnswer(t *testing.T) {
 // TestLateOverrunStillGetsBodyTooLarge proves that the write deadline also
 // restarts when the body is refused (PLAN.md §6 R-1, §4.3). With an upstream
 // timeout under 5 s, WriteTimeout is shorter than ReadTimeout, so a chunked
-// body can go over RELAY_MAX_REQUEST_BYTES after the original deadline has
+// body can go over the request limit after the original deadline has
 // passed; its 413 must still arrive. Like the test above, it waits past a
 // real socket deadline and is skipped with -short.
 func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
@@ -70,9 +70,8 @@ func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
 		t.Skip("waits past the server's write timeout on the real clock")
 	}
 	const upstreamTimeout = 100 * time.Millisecond
-	r := newRelay(t, relayOptions{run: true, env: map[string]string{
-		"RELAY_UPSTREAM_TIMEOUT":  upstreamTimeout.String(),
-		"RELAY_MAX_REQUEST_BYTES": "1024",
+	r := newRelay(t, relayOptions{run: true, maxRequestBytes: 1024, env: map[string]string{
+		"RELAY_UPSTREAM_TIMEOUT": upstreamTimeout.String(),
 	}})
 	overrunDelay := upstreamTimeout + config.WriteTimeoutMargin + 300*time.Millisecond
 
@@ -110,14 +109,14 @@ func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
 }
 
 // TestDeclaredOversizedBodyAnsweredAtOnce proves that a declared
-// Content-Length over RELAY_MAX_REQUEST_BYTES gets its 413 at once, with
+// Content-Length over the request limit gets its 413 at once, with
 // Connection: close, rather than after net/http has read the body the relay
 // refused (PLAN.md R-4). The client sends only the header, so a relay that
 // waited for the body would never answer. (After answering, net/http still
 // reads up to 256 KiB of the body before it closes the socket, bounded by
 // ReadTimeout; closing sooner could reset the connection and lose the 413.)
 func TestDeclaredOversizedBodyAnsweredAtOnce(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_MAX_REQUEST_BYTES": "1024"}})
+	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
 	conn, err := net.Dial("tcp", r.addr)
 	if err != nil {
 		t.Fatal(err)

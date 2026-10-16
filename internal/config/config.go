@@ -37,10 +37,6 @@ const (
 	// MaxCAFileBytes bounds the read of RELAY_UPSTREAM_CA_FILE, which holds
 	// a PEM bundle rather than a single value.
 	MaxCAFileBytes = 1 << 20
-	// MaxPayloadBudget caps RELAY_MAX_CONCURRENT × (RELAY_MAX_REQUEST_BYTES +
-	// RELAY_MAX_RESPONSE_BYTES), the body memory the relay may hold at once
-	// (PLAN.md §6, R-4, R-12).
-	MaxPayloadBudget = 64 << 20
 	// MaxClockSkew caps RELAY_CLOCK_SKEW. FITs live about 25 s, so a larger
 	// skew would in effect switch the exp and nbf checks off; a clock that
 	// far off needs fixing instead (PLAN.md §8, 2026-10-16).
@@ -52,18 +48,14 @@ const (
 // The defaults of PLAN.md §8. They go through the same parsers as operator
 // input, so a default can never bypass a rule.
 const (
-	defaultRequestHeaders   = "Content-Type,Accept"
-	defaultResponseHeaders  = "Content-Type,Cache-Control,Pragma"
-	defaultPort             = "8080"
-	defaultUpstreamTimeout  = "10s"
-	defaultMaxRequestBytes  = "65536"
-	defaultMaxResponseBytes = "65536"
-	defaultMaxConcurrent    = "50"
-	defaultClockSkew        = "10s"
-	defaultJWKSRefresh      = "6h"
-	defaultJWKSMaxAge       = "24h"
-	defaultShutdownGrace    = "15s"
-	defaultLogLevel         = "info"
+	defaultResponseHeaders = "Content-Type,Cache-Control,Pragma"
+	defaultPort            = "8080"
+	defaultUpstreamTimeout = "10s"
+	defaultClockSkew       = "10s"
+	defaultJWKSRefresh     = "6h"
+	defaultJWKSMaxAge      = "24h"
+	defaultShutdownGrace   = "15s"
+	defaultLogLevel        = "info"
 )
 
 const (
@@ -104,16 +96,12 @@ type Config struct {
 	// RELAY_UPSTREAM_AUTH_FILE, for the startup summary (PLAN.md §10).
 	CredentialFromFile bool
 	UpstreamCAs        *x509.CertPool // RELAY_UPSTREAM_CA_FILE; nil: system roots
-	RequestHeaders     []string       // RELAY_REQUEST_HEADERS, canonical names
 	ResponseHeaders    []string       // RELAY_RESPONSE_HEADERS, canonical names
 
 	Port int // RELAY_PORT
 
-	UpstreamTimeout  time.Duration // RELAY_UPSTREAM_TIMEOUT
-	MaxRequestBytes  int64         // RELAY_MAX_REQUEST_BYTES
-	MaxResponseBytes int64         // RELAY_MAX_RESPONSE_BYTES
-	MaxConcurrent    int           // RELAY_MAX_CONCURRENT
-	ClockSkew        time.Duration // RELAY_CLOCK_SKEW
+	UpstreamTimeout time.Duration // RELAY_UPSTREAM_TIMEOUT
+	ClockSkew       time.Duration // RELAY_CLOCK_SKEW
 
 	JWKSURL       string        // RELAY_JWKS_URL
 	JWKSRefresh   time.Duration // RELAY_JWKS_REFRESH
@@ -190,13 +178,9 @@ func (c *Config) Summary() []slog.Attr {
 		slog.String("RELAY_UPSTREAM_AUTH", credential),
 		slog.String("RELAY_UPSTREAM_CA_FILE", state(c.UpstreamCAs != nil, "system bundle")),
 		slog.String("RELAY_INSTALLATION_IDS", installations),
-		slog.String("RELAY_REQUEST_HEADERS", strings.Join(c.RequestHeaders, ",")),
 		slog.String("RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ",")),
 		slog.Int("RELAY_PORT", c.Port),
 		slog.String("RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout.String()),
-		slog.Int64("RELAY_MAX_REQUEST_BYTES", c.MaxRequestBytes),
-		slog.Int64("RELAY_MAX_RESPONSE_BYTES", c.MaxResponseBytes),
-		slog.Int("RELAY_MAX_CONCURRENT", c.MaxConcurrent),
 		slog.String("RELAY_CLOCK_SKEW", c.ClockSkew.String()),
 		slog.String("RELAY_JWKS_URL", c.JWKSURL),
 		slog.String("RELAY_JWKS_REFRESH", c.JWKSRefresh.String()),
@@ -215,7 +199,7 @@ func state(set bool, unset string) string {
 	return unset
 }
 
-// known reports the 21 settings of the PLAN.md §8 table. Any other RELAY_*
+// known reports the 17 settings of the PLAN.md §8 table. Any other RELAY_*
 // variable, other than a known name plus _FILE, is reported as unknown so
 // that a typo does not go unnoticed.
 func known(name string) bool {
@@ -223,10 +207,8 @@ func known(name string) bool {
 	case "RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS",
 		"RELAY_UPSTREAM_URL", "RELAY_ROUTES", "RELAY_UPSTREAM_AUTH",
 		"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-		"RELAY_REQUEST_HEADERS", "RELAY_RESPONSE_HEADERS", "RELAY_PORT",
-		"RELAY_UPSTREAM_TIMEOUT",
-		"RELAY_MAX_REQUEST_BYTES", "RELAY_MAX_RESPONSE_BYTES",
-		"RELAY_MAX_CONCURRENT", "RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
+		"RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
+		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE",
 		"RELAY_LOG_LEVEL":
 		return true
@@ -314,11 +296,9 @@ func (e environment) load() (*Config, error) {
 	c.Credential, c.CredentialFromFile = l.credential()
 	c.UpstreamCAs = l.upstreamCAs()
 	c.InstallationIDs = l.ids("RELAY_INSTALLATION_IDS", false)
-	c.RequestHeaders = l.headers("RELAY_REQUEST_HEADERS", defaultRequestHeaders, forward.ParseRequestHeaders)
-	c.ResponseHeaders = l.headers("RELAY_RESPONSE_HEADERS", defaultResponseHeaders, forward.ParseResponseHeaders)
+	c.ResponseHeaders = l.responseHeaders()
 	c.Port = l.port()
 	c.UpstreamTimeout = l.upstreamTimeout()
-	c.MaxRequestBytes, c.MaxResponseBytes, c.MaxConcurrent = l.payloadLimits()
 	c.ClockSkew = l.clockSkew()
 	c.JWKSURL = l.jwksURL()
 	c.JWKSRefresh, c.JWKSMaxAge = l.jwksAges()
@@ -611,8 +591,9 @@ func parseCAs(data []byte) (*x509.CertPool, string) {
 	return pool, ""
 }
 
-func (l *loader) headers(name, def string, parse func([]string) ([]string, error)) []string {
-	h, err := parse(l.list(name, l.optional(name, def)))
+func (l *loader) responseHeaders() []string {
+	const name = "RELAY_RESPONSE_HEADERS"
+	h, err := forward.ParseResponseHeaders(l.list(name, l.optional(name, defaultResponseHeaders)))
 	if err != nil {
 		l.fail(name, err.Error())
 	}
@@ -675,40 +656,6 @@ func (l *loader) upstreamTimeout() time.Duration {
 		l.fail(name, "too large: the server's write timeout adds "+WriteTimeoutMargin.String())
 	}
 	return d
-}
-
-func (l *loader) count(name, def string) int64 {
-	n, ok := parseDigits(l.optional(name, def))
-	if !ok || n < 1 {
-		l.fail(name, "want a whole number of at least 1, digits only")
-		return 0
-	}
-	return n
-}
-
-func (l *loader) payloadLimits() (request, response int64, concurrent int) {
-	request = l.count("RELAY_MAX_REQUEST_BYTES", defaultMaxRequestBytes)
-	response = l.count("RELAY_MAX_RESPONSE_BYTES", defaultMaxResponseBytes)
-	n := l.count("RELAY_MAX_CONCURRENT", defaultMaxConcurrent)
-	// withinBudget needs operands of at least 1, which count guarantees only
-	// when it did not fail.
-	if l.err == nil && !withinBudget(n, request, response) {
-		l.fail("RELAY_MAX_CONCURRENT, RELAY_MAX_REQUEST_BYTES, RELAY_MAX_RESPONSE_BYTES",
-			"concurrency times (request limit + response limit) must not exceed "+strconv.Itoa(MaxPayloadBudget)+" bytes")
-	}
-	// The budget keeps n far inside the int range.
-	return request, response, int(n)
-}
-
-// withinBudget reports whether concurrent × (request + response) is at most
-// MaxPayloadBudget, for operands of at least 1, without int64 overflow: each
-// limit is first bounded by the budget, so the sum cannot overflow, and the
-// product is compared by division (PLAN.md §6).
-func withinBudget(concurrent, request, response int64) bool {
-	if request > MaxPayloadBudget || response > MaxPayloadBudget {
-		return false
-	}
-	return concurrent <= MaxPayloadBudget/(request+response)
 }
 
 func (l *loader) jwksURL() string {

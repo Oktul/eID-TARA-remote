@@ -40,6 +40,9 @@ var (
 )
 
 const (
+	// MaxResponseBytes is the upstream body limit, fixed for token calls,
+	// whose answers are a few KB (PLAN.md D8, owner, 2026-10-16).
+	MaxResponseBytes = 64 << 10
 	// UpstreamMaxHeaderBytes bounds the upstream's response header, which is
 	// read before Options.MaxResponseBytes applies. Go's default is 10 MiB,
 	// far beyond a token response (PLAN.md R-4).
@@ -68,9 +71,7 @@ type Options struct {
 	// Credential is set on every upstream request; nil sets none, as for
 	// Authentigate, whose client assertion Forge signs (PLAN.md §5).
 	Credential *Credential
-	// RequestHeaders and ResponseHeaders are the canonical allowlists from
-	// ParseRequestHeaders and ParseResponseHeaders.
-	RequestHeaders  []string
+	// ResponseHeaders is the canonical allowlist from ParseResponseHeaders.
 	ResponseHeaders []string
 	// RootCAs are the only CAs trusted for the upstream; nil means the
 	// system bundle (RELAY_UPSTREAM_CA_FILE).
@@ -78,7 +79,9 @@ type Options struct {
 	// Timeout bounds the whole upstream call, body read included
 	// (RELAY_UPSTREAM_TIMEOUT, PLAN.md R-2).
 	Timeout time.Duration
-	// MaxResponseBytes is RELAY_MAX_RESPONSE_BYTES.
+	// MaxResponseBytes bounds the upstream body: the relay passes the
+	// MaxResponseBytes constant, tests a smaller limit. Zero refuses every
+	// non-empty answer.
 	MaxResponseBytes int64
 }
 
@@ -92,7 +95,6 @@ type Forwarder struct {
 	upstream         Upstream
 	routes           []Route
 	credential       *Credential
-	requestHeaders   []string // canonical
 	responseHeaders  []string // canonical
 	timeout          time.Duration
 	maxResponseBytes int64
@@ -131,7 +133,6 @@ func New(o Options) *Forwarder {
 		upstream:         o.Upstream,
 		routes:           o.Routes,
 		credential:       o.Credential,
-		requestHeaders:   o.RequestHeaders,
 		responseHeaders:  o.ResponseHeaders,
 		timeout:          o.Timeout,
 		maxResponseBytes: o.MaxResponseBytes,
@@ -243,12 +244,13 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 }
 
 // requestHeader builds the upstream request header from nothing, so only
-// allowlisted caller headers pass (PLAN.md §5). Go adds Host from the URL,
-// Content-Length from the body and its own User-Agent unless one is passed;
-// nothing adds X-Forwarded-For.
+// Content-Type and Accept pass from the caller: a token call needs no other,
+// so the allowlist is fixed (PLAN.md §5, owner, 2026-10-16). Go adds Host
+// from the URL, Content-Length from the body and its own User-Agent unless
+// one is passed; nothing adds X-Forwarded-For.
 func (f *Forwarder) requestHeader(in http.Header) http.Header {
-	out := make(http.Header, len(f.requestHeaders)+1)
-	copyAllowed(out, in, f.requestHeaders, requestExcluded)
+	out := make(http.Header, 3)
+	copyAllowed(out, in, []string{"Content-Type", "Accept"}, nil)
 	// Last, and with Set: a caller's header of the same name is replaced,
 	// never joined (PLAN.md §5).
 	if f.credential != nil {
@@ -259,14 +261,14 @@ func (f *Forwarder) requestHeader(in http.Header) http.Header {
 
 // copyAllowed copies the allowlisted fields of src to dst. A name that
 // src's Connection header nominates is hop-by-hop on that connection
-// (RFC 9110 §7.6.1) and is dropped even when allowlisted. excluded repeats
-// the mandatory exclusions of PLAN.md §5 at runtime, so an allowlist that
-// skipped ParseRequestHeaders or ParseResponseHeaders still cannot pass
+// (RFC 9110 §7.6.1) and is dropped even when allowlisted. excluded, if not
+// nil, repeats the mandatory exclusions of PLAN.md §5 at runtime, so a
+// response allowlist that skipped ParseResponseHeaders still cannot pass
 // them.
 func copyAllowed(dst, src http.Header, allowed []string, excluded func(string) bool) {
 	nominated := connectionNominated(src)
 	for _, name := range allowed {
-		if excluded(name) || slices.Contains(nominated, name) {
+		if excluded != nil && excluded(name) || slices.Contains(nominated, name) {
 			continue
 		}
 		if vs := src[name]; len(vs) > 0 {
