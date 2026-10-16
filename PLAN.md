@@ -3,7 +3,7 @@
 _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
 Phase 0 (D10), and checked locally (§16). Phase 0 ran the same day: every
 gate passed except PINNED, which needs a site with data residency (§14).
-Not merged, tagged or published; no workflow has run, since the repository
+Not tagged, pushed or published; no workflow has run, since the repository
 has no remote yet. All three review rounds are done for every change,
 Phase 0 fixes included, with no open code findings: `codex/review-phase-0-results`
 is the whole line, and `main` is fast-forwarded to it after the owner's
