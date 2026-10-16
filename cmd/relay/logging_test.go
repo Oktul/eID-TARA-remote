@@ -19,8 +19,9 @@ import (
 	"time"
 )
 
-// net/http logs unsolicited bytes on a reused upstream connection through
-// the process's standard logger. Those bytes can contain secrets (PLAN.md §10).
+// net/http logs unsolicited bytes on an idle pooled upstream connection
+// through the process's standard logger. Those bytes can contain secrets
+// (PLAN.md §10).
 func TestIdleUpstreamBytesNeverLogged(t *testing.T) {
 	// The standard logger is process-wide, so this test stays sequential.
 	oldWriter := log.Writer()
@@ -121,7 +122,7 @@ func upstreamWithExtraBytes(t *testing.T, body string) (*httptest.Server, <-chan
 			closed <- err
 			return
 		}
-		defer func() { _ = conn.Close() }() // one synthetic exchange
+		defer func() { _ = conn.Close() }() // the checks never depend on the close
 		if err := conn.SetDeadline(time.Now().Add(waitLimit)); err != nil {
 			closed <- err
 			return

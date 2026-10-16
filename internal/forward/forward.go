@@ -191,7 +191,8 @@ type Response struct {
 // request on its own only on a reused connection, and then only if nothing
 // was written yet or the request is idempotent. A POST is idempotent to Go
 // only with an Idempotency-Key or X-Idempotency-Key header, which the
-// relay never sends.
+// relay never sends, and a POST with a body has no GetBody (below), so Go
+// never re-sends it.
 func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, body []byte) (*Response, error) {
 	if !slices.Contains(f.routes, route) {
 		panic("forward: route is not an allowed route")
@@ -207,7 +208,9 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 		return nil, ErrUnreachable
 	}
 	// NewRequest adds GetBody for bytes.Reader. PLAN.md §5 forbids a replay
-	// callback for token POSTs, including transport recovery before any write.
+	// callback for token POSTs; without one, Go also skips its resend of a
+	// POST with a body when nothing was written, so a stale idle connection
+	// costs a 502.
 	if route.Method == http.MethodPost {
 		req.GetBody = nil
 	}
@@ -217,7 +220,8 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 	if err != nil {
 		return nil, classify(ctx)
 	}
-	// Closing an unread body drops the connection instead of draining it.
+	// Closing an unread body hands the relay nothing more; Go may drain a
+	// short rest to reuse the connection, or drop it.
 	defer func() { _ = resp.Body.Close() }() // the answer is decided; a close error changes nothing
 
 	// Disabling HTTP/2 controls negotiation, but Go's HTTP/1 parser still

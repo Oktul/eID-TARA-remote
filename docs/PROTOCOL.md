@@ -71,6 +71,11 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
    answer.
 5. Forward (section 6).
 
+Any answer the relay gives itself (an error, health or info) before a
+declared or chunked body has been read carries `Connection: close`; once the
+body has been read in full, the relay itself no longer closes the
+connection.
+
 A recovered panic answers `500 internal_error` (R-6).
 
 ## 4. Responses
@@ -107,7 +112,7 @@ stable across versions (F-9):
 | 404    | `route_not_allowed`    | Method and path not allowed, a query string, or an odd path  | yes               |
 | 413    | `body_too_large`       | Request body over the limit                                  | yes               |
 | 500    | `internal_error`       | A recovered internal error (R-6)                             | after a valid FIT |
-| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, an answer that is not valid HTTP/1.1, including a final status below 200, or an answer whose header is over 32 KiB | yes               |
+| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, an answer that is not valid HTTP/1.1 (a status line other than HTTP/1.1, HTTP/1.0 included, or a final status below 200), or an answer whose header is over 32 KiB | yes               |
 | 502    | `upstream_too_large`   | Upstream body over the limit                                 | yes               |
 | 503    | `not_ready`            | No usable keys loaded, or their maximum age is reached (K-5) | no                |
 | 503    | `too_busy`             | Concurrency cap reached                                      | no                |
@@ -369,10 +374,11 @@ lives 25 s; the relay does not depend on that lifetime.
 A token exchange may have consumed the one-time code even if its response
 was lost. Neither the relay, the supplied proxy configuration nor Forge
 automatically retries that exchange. The relay drops idempotency headers and
-does not mark token `POST`s as idempotent. Go's transport may recover a
-reused connection when nothing was written, or retry an idempotent `GET`;
-this does not authorize a second token `POST` after a possibly delivered
-request.
+does not mark token `POST`s as idempotent or give them a replay callback.
+Go's transport may recover a reused connection when nothing was written,
+but not for a token `POST` with a body, which then fails as
+`502 upstream_unreachable`; it may also retry an idempotent `GET`. Neither
+authorizes a second token `POST` after a possibly delivered request.
 
 ## 7. Health and info bodies
 

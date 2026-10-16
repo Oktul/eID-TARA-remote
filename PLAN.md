@@ -2,11 +2,12 @@
 
 _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
 Phase 0 (D10), and checked locally (§16). Not merged, tagged or published;
-no workflow has run, since the repository has no remote yet. Still open: the
-Phase 0 gates (§14), source CI on GitHub, the Phase 2 release verifications,
-one open Codex release-date finding and Claude's final review (`AGENTS.md`,
-§16). Adding `remotes` to the Forge app still needs the owner's approval
-(Oktul eID SSO, `PLAN.md` §4.7)._
+no workflow has run, since the repository has no remote yet. All three
+review rounds are done (`AGENTS.md`, §16). Still open: the Phase 0 gates
+(§14), source CI on GitHub, the Phase 2 release verifications and three open
+findings: Codex's release-date finding, a flaky test and a silent
+`go-patch.sh` skip (§16). Adding `remotes` to the Forge app still needs the
+owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -126,7 +127,7 @@ these checks.
 | 404    | `route_not_allowed`    | Method and path not allowed, a query string, or an odd path |
 | 413    | `body_too_large`       | Request body over the limit                                 |
 | 500    | `internal_error`       | A recovered internal error (R-6)                            |
-| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, or an answer that is not valid HTTP/1.1, including a final status below 200 and a header over 32 KiB (2026-10-15) |
+| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, or an answer that is not valid HTTP/1.1, including a status line other than HTTP/1.1 (HTTP/1.0 included, 2026-10-16), a final status below 200 and a header over 32 KiB (2026-10-15) |
 | 502    | `upstream_too_large`   | Upstream body over the limit                                |
 | 503    | `not_ready`            | No usable keys loaded, or their maximum age is reached (K-5) |
 | 503    | `too_busy`             | Concurrency cap reached                                     |
@@ -372,7 +373,10 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   idempotency headers and do not mark token POSTs as idempotent or provide a
   replay callback. Go's transport may recover a reused connection when
   nothing was written, or retry an idempotent GET; this does not authorize a
-  second token POST after a possibly delivered request. Test the distinction
+  second token POST after a possibly delivered request. Without a replay
+  callback, Go does not resend a token POST with a body even when nothing
+  was written; that rare case answers 502 `upstream_unreachable`
+  (2026-10-16). Test the distinction
   with a connection that fails after receiving the token request.
 - **Cancellation:** the caller's disconnect cancels the upstream call (R-3).
 - **Outbound proxy:** `HTTPS_PROXY` and `NO_PROXY` are honoured for the
@@ -398,14 +402,14 @@ request header has been read, so a slow body or an unknown-key wait would
 use up time the answer needs, and a token exchange could succeed upstream
 while its answer is dropped (R-8). The relay therefore restarts the write
 deadline, upstream timeout + 5 s, once the body has been read or refused,
-so a 413 gets the same budget (2026-10-16). Any local answer before the body
-is read closes the connection when a body is declared or chunked, so
+so a 413 gets the same budget (2026-10-16). Any local answer before the
+body is read closes the connection when a body is declared or chunked, so
 net/http cannot wait to drain that refused body before flushing the answer
 (2026-10-16). Successful full reads preserve connection reuse. A 413 also
-closes the connection (`Connection: close`) instead of reading the refused body to keep
-the connection; when the limit is hit while reading, net/http half-closes
-and waits briefly first, so a client still sending reads the 413 rather
-than a reset.
+closes the connection (`Connection: close`) instead of reading the refused
+body to keep the connection; when the limit is hit while reading, net/http
+half-closes and waits briefly first, so a client still sending reads the
+413 rather than a reset.
 
 The payload-budget calculation is a partial budget, not a proof of total
 memory use. It must use overflow-safe arithmetic and leave space for buffer
@@ -683,7 +687,8 @@ promotes unreleased work from `main` into a patch release.
     non-root user, `/livez` answers `200`, `/readyz` answers `503` while the
     JWKS URL is unreachable, and a bad setting exits with its name;
   - a check that the Go version in `go.mod`'s `toolchain` line and the
-    builder image tag in the `Dockerfile` are the same.
+    builder image tag in the `Dockerfile` are the same;
+  - the release-line selection cases (`lines-test.sh`; bash, git and jq).
 - **`release.yml`, on a `vX.Y.Z` tag, and callable from `go-patch.yml`**
   (`workflow_call`, because a tag pushed with a workflow's own token does not
   start other workflows):
@@ -793,6 +798,8 @@ promotes unreleased work from `main` into a patch release.
     next patch number is one above that tag.
   - The supported minor of a major is its newest `release/X.Y` branch that
     has a `vX.Y.Z` tag; an unreleased newer branch does not displace it.
+    Likewise, only tagged lines choose the current and previous major, so
+    an unreleased future major ends no support (2026-10-16).
   - The Go-minor job opens its pull request even when an earlier run pushed
     the branch but failed to open one.
   - Report jobs hold `contents: read` and `issues: write`; the publish job
@@ -1078,11 +1085,13 @@ Document consistency and whitespace checks apply to this planning revision;
 the Go checks remain mandatory once the Phase 0/1 source and tools exist.
 
 **Implementation record (2026-10-16, D10).** Phase 1 is on
-`claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`,
-stacked on it. Claude agents wrote them; other Claude agents reviewed them in
-three rounds before Codex's round (`AGENTS.md`), the third only of the
-second's fixes, each finding checked by a skeptic: 87 confirmed findings
-were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows with Go 1.27.2:
+`claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`; Phase
+2 forks from Phase 1 at `5f99afc`, before Codex's review, and carries
+Codex's Phase 1 fixes as its own commits. Claude agents wrote both phases;
+other Claude agents reviewed them in three rounds before Codex's round
+(`AGENTS.md`), the third only of the second's fixes, each finding checked by
+a skeptic: 87 confirmed findings were fixed (52, 25 and 10) and 12 refuted.
+Results on the final tree, on Windows with Go 1.27.2:
 
 - `gofmt`, `go vet ./...`, `staticcheck ./...` (2026.2.2) and
   `govulncheck ./...` (v1.9.0, no vulnerabilities) pass.
@@ -1120,7 +1129,8 @@ as separate commits, alongside the Phase 2 review.
 - Fixed support selection so only release lines with a release tag can
   choose the current or previous major (§12). Preparing an unreleased
   future-major branch no longer drops the still-supported previous major
-  from daily patches and weekly scans. Ten isolated Git fixtures cover
+  from daily patches and weekly scans. Ten cases in one temporary Git
+  repository cover
   unreleased majors/minors, transitions, no releases and support expiry;
   `ci.yml` and automatic-patch source checks run them. All five required
   Go checks and the ten release-line fixtures pass.
@@ -1140,8 +1150,11 @@ as separate commits, alongside the Phase 2 review.
   forwarded-body read. All five required Go checks pass, including Linux
   race tests; no vulnerabilities are reported.
 - Carried the Phase 1 removal of token POST replay callbacks (§5).
-  Transport-boundary fixtures verify that nonempty token POSTs have no
+  A transport-boundary fixture verifies that nonempty token POSTs have no
   replay callback; existing delivered-but-lost-response coverage remains.
+  Go therefore no longer resends such a POST when nothing was written, and
+  a 307 or 308 answer to it skips Go's redirect parsing, so a malformed
+  `Location` comes back wrapped (D7) instead of as 502.
   All five required Go checks pass, including Linux race tests; no
   vulnerabilities are reported.
 
@@ -1188,9 +1201,46 @@ Final local validation of the packaging review fixes (2026-10-16):
   fixes were added; the release-date finding above remains open. No merge,
   push, repository tag or publication was performed.
 
+**Claude review, round 3 (2026-10-16).** All seven Codex fixes stand: each
+defect reproduces, the six code fixes' regression tests fail with the fix
+reverted, and no fix conflicts with the plan; nothing is reverted and there
+is no disagreement. Round 3 changed only comments, docs and records: §4.3
+and §5 now state the HTTP/1.1-only status line and the lost token POST
+resend, `docs/PROTOCOL.md` matches them and the early-answer
+`Connection: close`, stale comments are corrected and `README.md` is
+rewritten as a short entry point. `gofmt`, `go vet`, `staticcheck`, `govulncheck` (no
+vulnerabilities) and `go test` pass on Windows, `go test -race ./...` in the
+pinned builder, and the ten release-line cases with jq. Open findings, which
+block `main`:
+
+- The release-date finding above. Recommended: read `taggerdate` instead of
+  `creatordate`, so a lightweight `vN.0.0` keeps the previous major and
+  warns; require annotated release tags in §12; add a lightweight-tag case.
+- `TestServeKeyLoopStopsAfterInFlightRequests` fails about once in 100
+  runs under `-race`. When the test takes over `FITKeyWait` (1 s) to
+  release the held JWKS fetch, the relay rightly answers 401; a 1.1 s pause
+  fails it every time. The test needs a timing margin, not the relay.
+- `go-patch.sh` only logs a notice when a line has a release tag but none on
+  its branch, while `lines.sh` still counts the line as supported, so it
+  silently gets no Go patches. §12 requires an issue in that case.
+
+Owner questions, not blocking: may a third major released inside the
+previous major's 12-month window end the oldest major early (the code and
+§12's wording say yes, `docs/SUPPORT.md` promises a fixed date)? Should every
+3xx with a malformed `Location` come back wrapped, not only 307 and 308 to a
+POST with a body? Follow-ups for the next change: more `lines-test.sh` cases
+(pre-releases, several minors, the 12-month boundary) with Git's local
+environment cleared; `logging_test.go` asserting `log.Writer() == io.Discard`;
+and the load generator naming the proxy limit in its overload hint.
+
+The packaging branch contains Phase 1 with the same fixes, so `main` can be
+fast-forwarded to it once these findings are closed; the Phase 1 branch is
+then superseded.
+
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
-GitHub and Claude's final review. Phase 2 also needs the owner decision on
-release dates and its release verifications (§14) on a GitHub repository.
+GitHub and the flaky test above. Phase 2 also needs the release-date
+decision, the `go-patch.sh` fix and its release verifications (§14) on a
+GitHub repository.
 
 Primary references consulted for the review on 2026-10-15:
 

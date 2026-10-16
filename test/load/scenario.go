@@ -172,10 +172,11 @@ func runScenario(ctx context.Context, e *env, s scenario, d time.Duration) resul
 }
 
 // verdict lists the checks a scenario failed. They are the acceptance
-// properties of PLAN.md §13: overload never fails a health probe (§6), every
-// answer is one the protocol allows (§4.3), a rejected request never reaches
-// the upstream (§4.2) and unknown key IDs start at most one JWKS fetch per
-// interval (§4.5).
+// properties of PLAN.md §13: the full load passes the concurrency cap,
+// overload never fails a health probe (§6), every answer is one the
+// protocol allows (§4.3), a rejected request never reaches the upstream
+// (§4.2) and unknown key IDs start at most one JWKS fetch per interval
+// (§4.5).
 func verdict(s scenario, r result) []string {
 	var f []string
 	var unexpected int64

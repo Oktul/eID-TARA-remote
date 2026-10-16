@@ -41,7 +41,7 @@ lines=("$(newest_minor "$major")")
 
 previous=$(awk -v m="$major" '$1 < m' <<<"$majors" | tail -n 1)
 if [[ -n $previous ]]; then
-	# Without the initial-major tag there is no recorded start for the
+	# A major released without a vN.0.0 tag has no recorded start for the
 	# previous major's window, so keep it rather than end support early.
 	created=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/v$major.0.0")
 	keep=true
