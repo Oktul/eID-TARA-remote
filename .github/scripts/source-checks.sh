@@ -32,6 +32,10 @@ check_gofmt() {
 	[[ -z $files ]] || die "gofmt -l lists files that need formatting: ${files//$'\n'/ }"
 }
 
+check_release_lines() {
+	bash "$(dirname "${BASH_SOURCE[0]}")/lines-test.sh"
+}
+
 check_vet() {
 	go vet ./...
 }
@@ -70,18 +74,19 @@ check_gitleaks() {
 run_check() {
 	case $1 in
 	module) check_module ;;
+	release-lines) check_release_lines ;;
 	gofmt) check_gofmt ;;
 	vet) check_vet ;;
 	staticcheck) check_staticcheck ;;
 	test) check_test ;;
 	govulncheck) check_govulncheck ;;
 	gitleaks) check_gitleaks ;;
-	*) die "usage: source-checks.sh all|module|gofmt|vet|staticcheck|test|govulncheck|gitleaks" ;;
+	*) die "usage: source-checks.sh all|module|release-lines|gofmt|vet|staticcheck|test|govulncheck|gitleaks" ;;
 	esac
 }
 
 if [[ ${1:-} == all ]]; then
-	for c in module gofmt vet staticcheck test govulncheck gitleaks; do
+	for c in module release-lines gofmt vet staticcheck test govulncheck gitleaks; do
 		echo "::group::$c"
 		run_check "$c"
 		echo "::endgroup::"

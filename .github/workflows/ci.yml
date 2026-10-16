@@ -49,6 +49,9 @@ jobs:
       - name: No modules; one Go version for tests and image
         working-directory: src
         run: ../tools/.github/scripts/source-checks.sh module
+      - name: Supported release lines
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh release-lines
       - name: gofmt
         working-directory: src
         run: ../tools/.github/scripts/source-checks.sh gofmt

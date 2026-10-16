@@ -1102,6 +1102,13 @@ were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows
 branch predates the Phase 1 review fixes; they are checked and carried here
 as separate commits, alongside the Phase 2 review.
 
+- Fixed support selection so only release lines with a release tag can
+  choose the current or previous major (§12). Preparing an unreleased
+  future-major branch no longer drops the still-supported previous major
+  from daily patches and weekly scans. Ten isolated Git fixtures cover
+  unreleased majors/minors, transitions, no releases and support expiry;
+  `ci.yml` and automatic-patch source checks run them. All five required
+  Go checks and the ten release-line fixtures pass.
 - Carried the HTTP/1.1-only upstream response check from the Phase 1 review
   (§4.3, §5). Raw TLS fixtures cover HTTP/1.0, HTTP/1.2 and HTTP/2.0
   rejection and a successful HTTP/1.1 answer.
