@@ -38,6 +38,7 @@ check_release_lines() {
 	dir=$(dirname "${BASH_SOURCE[0]}")
 	bash "$dir/lines-test.sh"
 	bash "$dir/release-test.sh"
+	bash "$dir/go-patch-test.sh"
 }
 
 check_vet() {

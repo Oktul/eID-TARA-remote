@@ -688,8 +688,8 @@ promotes unreleased work from `main` into a patch release.
     JWKS URL is unreachable, and a bad setting exits with its name;
   - a check that the Go version in `go.mod`'s `toolchain` line and the
     builder image tag in the `Dockerfile` are the same;
-  - the release-script cases (`lines-test.sh` and `release-test.sh`; bash,
-    git and jq).
+  - the release-script cases (`lines-test.sh`, `release-test.sh` and
+    `go-patch-test.sh`; bash, git and jq).
 - **`release.yml`, on a `vX.Y.Z` tag, and callable from `go-patch.yml`**
   (`workflow_call`, because a tag pushed with a workflow's own token does not
   start other workflows):
@@ -1253,6 +1253,10 @@ has a case that fails without it:
   lightweight release tags (§12). `lines-test.sh` and the new
   `release-test.sh` cover both. That release.yml's checkout keeps tag
   objects (`fetch-depth: 0`) is to be confirmed by the first release (§14).
+- Off-branch releases: `go-patch.sh prepare` now opens the "not on the
+  branch" issue also when none of a line's release tags is on its branch,
+  instead of a notice, as §12 requires. The new `go-patch-test.sh` runs
+  prepare against a local origin with a stub `gh`.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and the flaky test above. Phase 2 also needs the release-date

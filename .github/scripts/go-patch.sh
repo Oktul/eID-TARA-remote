@@ -69,18 +69,20 @@ prepare() {
 	tip=$(git rev-parse --verify "refs/remotes/origin/$branch^{commit}")
 	all=$(git tag --list "v$line.*" --merged "refs/remotes/origin/$branch")
 	latest=$(patch_tags "$line" "$all" | tail -n 1)
-	if [[ -z $latest ]]; then
-		notice "$branch has no release yet, so there is nothing to patch"
-		return
-	fi
 	# The base must be the line's latest published release (PLAN.md §12). A
 	# newer tag off the branch, such as a hotfix, would otherwise be left out,
 	# and the floating tag would move past it to a build without its changes.
+	# lines.sh counts a tag on any ref, so a line whose releases are all off
+	# the branch is supported too and gets the same issue.
 	all=$(git tag --list "v$line.*")
 	last=$(patch_tags "$line" "$all" | tail -n 1)
+	if [[ -z $last ]]; then
+		notice "$branch has no release yet, so there is nothing to patch"
+		return
+	fi
 	if [[ $last != "$latest" ]]; then
 		"$here/issue.sh" "go-patch: $branch: $last is not on the branch" \
-			"$last is the newest v$line release, but $branch contains only $latest, so go-patch.yml leaves this line alone (PLAN.md §12). Move $branch to $last if it descends from the branch, or release the line by hand with a newer tag on $branch; automatic Go patches resume from that release."
+			"$last is the newest v$line release, but $branch contains ${latest:-no v$line release}, so go-patch.yml leaves this line alone (PLAN.md §12). Move $branch to $last if it descends from the branch, or release the line by hand with a newer tag on $branch; automatic Go patches resume from that release."
 		return
 	fi
 	tag_commit=$(git rev-parse --verify "refs/tags/$latest^{commit}")
