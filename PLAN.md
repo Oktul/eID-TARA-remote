@@ -1,8 +1,11 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-15: planning only, no code. Private repository. Building the
-relay and adding `remotes` to the Forge app still need the owner's approval
-(Oktul eID SSO, `PLAN.md` §4.7)._
+_Status 2026-10-16: Phase 1 implemented on a review branch, ahead of Phase 0
+(D10), and checked locally (§16). Not merged, tagged or published; no
+workflow has run, since the repository has no remote yet. Still open: the
+Phase 0 gates (§14), source CI on GitHub and Codex's review (`AGENTS.md`).
+Adding `remotes` to the Forge app still needs the owner's approval (Oktul eID
+SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -42,6 +45,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Forge reads `401` from a remote as a failed FIT check and treats `3xx` and other non-2xx answers as failures. An upstream `401 invalid_client` must not look like a FIT failure.                                                               |
 | D8  | **Defaults sized for token calls:** 10 s upstream timeout, 64 KiB request and response limits.                         | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Also keeps the memory budget far below 128 MB (§6).                                                                                           |
 | D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
+| D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback ships disabled, and no gate counts as passed until it is recorded here.                       |
 
 ## 3. Request flow
 
@@ -517,6 +521,10 @@ docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
 Dockerfile, go.mod, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
 ```
 
+The module path is `eid-forge-remote` until the GitHub owner is chosen
+(§15 Q6); nothing imports the module from outside, so the path can change
+then (2026-10-15).
+
 `LICENSE` (EUPL-1.2) and `SECURITY.md` are added when the repository is
 published (D3). From the first commit, nothing goes in that could not be
 public: no secrets, keys, customer names or internal hostnames.
@@ -738,8 +746,9 @@ promotes unreleased work from `main` into a patch release.
 ## 14. Phases
 
 0. **Approval and Forge spike** (in the Forge app, development
-   environment). The current approval is for plan edits only; implementation
-   and Forge manifest changes still need approval. Once Phase 0 is approved,
+   environment). Until D10 (2026-10-15) the approval covered plan edits
+   only; D10 authorized Phases 1 and 2 in this repository. Forge manifest
+   changes still need approval. Once Phase 0 is approved,
    a bounded exception permits only the relay pieces needed for the spike:
    configuration, tested FIT/site/environment checks, one synthetic upstream
    route and the v1 status/header response. Use a temporary tunnel, synthetic
