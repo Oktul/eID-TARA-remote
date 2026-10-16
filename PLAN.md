@@ -1035,7 +1035,9 @@ promotes unreleased work from `main` into a patch release.
      ("Cannot read properties of undefined (reading 'address')"), also with
      `supportedPatterns` or an `endpoint` module, although the remotes
      reference makes `baseUrl` optional. The spike used the placeholder
-     `https://relay.invalid`, which makes adding the remote a major version.
+     `https://relay.invalid`, which makes adding the remote a major version;
+     `forge lint` called removing it again a major version too ("Removal of
+     configurable remotes"), where the reference says minor.
      (b) With the remote unset, a call goes to the placeholder and returns
      `500` with an HTML page from Forge's egress proxy; nothing reaches a
      relay. Reset restores that state.
