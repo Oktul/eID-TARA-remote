@@ -25,7 +25,7 @@ func FuzzVerify(f *testing.F) {
 	tokens := []string{
 		signRaw(f, key, validHeader, validPayload),
 		signRaw(f, key, validHeader, edit(f, validPayload, audMember, `"aud":["`+synthAppID+`"],`)),
-		signRaw(f, key, `{"kid":"`+synthKID+`","alg":"RS256"}`, edit(f, validPayload, expMember, `"exp":1.80000002e9,`)),
+		signRaw(f, key, `{"kid":"`+synthKID+`","alg":"RS256"}`, edit(f, validPayload, expMember, `"exp":1800000020.5,`)),
 	}
 	valid := make(map[string]bool)
 	for _, tok := range tokens {
@@ -105,8 +105,6 @@ func FuzzParseObject(f *testing.F) {
 // math/big oracle (PLAN.md §4.4, §13). FuzzVerify cannot reach it, because
 // no mutated token keeps a valid signature.
 func FuzzParseNumericDate(f *testing.F) {
-	// Too long for a readable corpus file (see TestParseNumericDate).
-	f.Add([]byte(clampBoundaryDate))
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		for _, roundUp := range []bool{false, true} {
 			got, err := parseNumericDate(raw, roundUp)
@@ -128,35 +126,18 @@ func FuzzParseNumericDate(f *testing.F) {
 	})
 }
 
-// unsignedJSONNumber is the JSON number grammar (RFC 8259 §6) without the
-// minus sign, with the mantissa and the exponent as groups.
-var unsignedJSONNumber = regexp.MustCompile(`^((?:0|[1-9][0-9]*)(?:\.[0-9]+)?)(?:[eE]([+-]?[0-9]+))?$`)
-
-// oracleExponentLimit clamps exponents in numericDateOracle. For a literal of
-// at most MaxTokenBytes a larger magnitude gives the same answer: far out of
-// range when positive, a positive value below one nanosecond when negative.
-// It is twice the parser's own clamp, so the two do not share a mistake.
-const oracleExponentLimit = 4 * MaxTokenBytes
+// plainDecimal is the unsigned JSON number grammar of RFC 8259 §6 without
+// the exponent, the form PLAN.md §4.4 accepts.
+var plainDecimal = regexp.MustCompile(`^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$`)
 
 // numericDateOracle computes what parseNumericDate must return, with exact
-// rational arithmetic: an unsigned JSON number of at most MaxTokenBytes and
-// at most MaxNumericDateSeconds, cut to nanoseconds, down or, with roundUp,
-// up.
+// rational arithmetic: a plainDecimal of at most MaxNumericDateSeconds, cut
+// to nanoseconds, down or, with roundUp, up.
 func numericDateOracle(raw string, roundUp bool) (time.Time, bool) {
-	m := unsignedJSONNumber.FindStringSubmatch(raw)
-	if m == nil || len(raw) > MaxTokenBytes {
+	if !plainDecimal.MatchString(raw) {
 		return time.Time{}, false
 	}
-	exp, limit := new(big.Int), big.NewInt(oracleExponentLimit)
-	if m[2] != "" {
-		if _, ok := exp.SetString(m[2], 10); !ok {
-			return time.Time{}, false
-		}
-	}
-	if exp.CmpAbs(limit) > 0 {
-		exp.Mul(limit, big.NewInt(int64(exp.Sign())))
-	}
-	v, ok := new(big.Rat).SetString(m[1] + "e" + exp.String())
+	v, ok := new(big.Rat).SetString(raw)
 	if !ok || v.Cmp(new(big.Rat).SetInt64(MaxNumericDateSeconds)) > 0 {
 		return time.Time{}, false
 	}
@@ -179,14 +160,12 @@ func TestNumericDateOracle(t *testing.T) {
 		ok      bool
 	}{
 		{"1800000000.5", false, time.Unix(1800000000, 5e8), true},
-		{"18E+8", false, time.Unix(1800000000, 0), true},
+		{"18E+8", false, time.Time{}, false},
 		{"0.0000000001", false, time.Unix(0, 0), true},
 		{"0.0000000001", true, time.Unix(0, 1), true},
-		{"1e-999999999", true, time.Unix(0, 1), true},
 		{"253402300799", true, time.Unix(MaxNumericDateSeconds, 0), true},
 		{"253402300799.0000000001", false, time.Time{}, false},
 		{"1e999999999", false, time.Time{}, false},
-		{clampBoundaryDate, false, time.Time{}, false},
 		{"01", false, time.Time{}, false},
 		{"-0", false, time.Time{}, false},
 	}

@@ -157,10 +157,14 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 - `iss` is the exact string `forge/invocation-token`. `aud` is either the
   exact `RELAY_APP_ID` string (`ari:cloud:ecosystem::app/<uuid>`) or a
   non-empty array of non-empty strings containing that exact value (A-3).
-- `exp` and `nbf` are required NumericDate JSON numbers. Parse them without
-  float rounding or integer overflow; accept fractional seconds, bounded to
-  the Unix-second interval 0 through `MaxNumericDateSeconds = 253402300799`
-  inclusive. Require
+- `exp` and `nbf` are required NumericDate JSON numbers in plain decimal
+  notation: digits with an optional fraction. Parse them without float
+  rounding or integer overflow; accept fractional seconds, bounded to the
+  Unix-second interval 0 through `MaxNumericDateSeconds = 253402300799`
+  inclusive. Exponent notation (`1.8e9`) is refused (owner, 2026-10-16): no
+  JWT library writes a date that way, since JavaScript and Go switch to it
+  only from 10²¹, and refusing it shrinks the parser to a few lines. Phase 0
+  recorded the dates only as numbers, so fractions stay accepted. Require
   `exp > nbf`, `now < exp + skew` and `now + skew >= nbf` (A-4).
   Missing, null, string or out-of-range dates fail closed. Atlassian's
   example token lives 25 s; the relay does not depend on that lifetime.

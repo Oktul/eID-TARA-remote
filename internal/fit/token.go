@@ -3,9 +3,9 @@
 package fit
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,16 +31,12 @@ const (
 	algorithm = "RS256"
 
 	// maxDateDigits is the number of digits of MaxNumericDateSeconds: a date
-	// with more integer digits is out of range without further arithmetic.
+	// with more integer digits is out of range, and one with fewer cannot
+	// overflow an int64.
 	maxDateDigits = 12
 
 	// nanoDigits is the number of fraction digits a time.Time can hold.
 	nanoDigits = 9
-
-	// maxDateExponent clamps a NumericDate exponent. For a literal of at most
-	// MaxTokenBytes a larger magnitude gives the same answer, so the clamp
-	// changes no result but keeps "1e999999999" cheap and overflow-free.
-	maxDateExponent = 2 * MaxTokenBytes
 )
 
 // bearerToken returns the compact JWS from the request's Authorization field
@@ -146,86 +142,28 @@ func checkHeader(h object) (string, error) {
 }
 
 // parseNumericDate parses an exp or nbf claim without floating point, so no
-// rounding or overflow can move a boundary (PLAN.md §4.4). raw must be an
-// unsigned JSON number in [0, MaxNumericDateSeconds]; a missing claim (empty
-// raw), null, a string or a negative number is refused. Sub-nanosecond
-// fractions are cut down for exp and up for nbf (roundUp), so an inexact
-// date can only shorten the validity window. Every failure is ReasonDates.
+// rounding can move a boundary (PLAN.md §4.4). raw must be an unsigned JSON
+// number in plain decimal notation, digits with an optional fraction, in
+// [0, MaxNumericDateSeconds]. A missing claim (empty raw), null, a string, a
+// minus sign and exponent notation, which no JWT library writes for a date,
+// are refused. Sub-nanosecond fractions are cut for exp and rounded up for
+// nbf (roundUp), so an inexact date can only shorten the validity window.
+// Every failure is ReasonDates.
 func parseNumericDate(raw json.RawMessage, roundUp bool) (time.Time, error) {
-	if len(raw) == 0 || len(raw) > MaxTokenBytes || !isDigit(raw[0]) {
+	whole, frac, hasFrac := strings.Cut(string(raw), ".")
+	if !digits(whole) || len(whole) > maxDateDigits || len(whole) > 1 && whole[0] == '0' ||
+		hasFrac && !digits(frac) {
 		return time.Time{}, reject(ReasonDates)
 	}
-	// The value is digits · 10^(exp - fracLen), with digits the integer and
-	// fraction digits together.
-	digits := make([]byte, 0, len(raw))
-	i := 0
-	for ; i < len(raw) && isDigit(raw[i]); i++ {
-		digits = append(digits, raw[i])
-	}
-	fracLen := 0
-	if i < len(raw) && raw[i] == '.' {
-		i++
-		for ; i < len(raw) && isDigit(raw[i]); i++ {
-			digits = append(digits, raw[i])
-			fracLen++
-		}
-		if fracLen == 0 {
-			return time.Time{}, reject(ReasonDates)
-		}
-	}
-	exp := 0
-	if i < len(raw) && (raw[i] == 'e' || raw[i] == 'E') {
-		i++
-		negative := i < len(raw) && raw[i] == '-'
-		if i < len(raw) && (raw[i] == '+' || raw[i] == '-') {
-			i++
-		}
-		start := i
-		for ; i < len(raw) && isDigit(raw[i]); i++ {
-			exp = min(exp*10+int(raw[i]-'0'), maxDateExponent)
-		}
-		if i == start {
-			return time.Time{}, reject(ReasonDates)
-		}
-		if negative {
-			exp = -exp
-		}
-	}
-	if i != len(raw) {
+	nano := frac[:min(len(frac), nanoDigits)]
+	// Digits only and at most 12 of them, so neither parse can fail.
+	sec, _ := strconv.ParseInt(whole, 10, 64)
+	nsec, _ := strconv.ParseInt(nano+strings.Repeat("0", nanoDigits-len(nano)), 10, 64)
+	finer := strings.Trim(frac[len(nano):], "0") != ""
+	if sec > MaxNumericDateSeconds || sec == MaxNumericDateSeconds && (nsec != 0 || finer) {
 		return time.Time{}, reject(ReasonDates)
 	}
-
-	d := bytes.TrimLeft(digits, "0")
-	if len(d) == 0 {
-		return time.Unix(0, 0), nil
-	}
-	// intLen is the number of digits of d before the decimal point; positions
-	// outside d are zeros.
-	intLen := len(d) + exp - fracLen
-	if intLen > maxDateDigits {
-		return time.Time{}, reject(ReasonDates)
-	}
-	digit := func(p int) int64 {
-		if p >= 0 && p < len(d) {
-			return int64(d[p] - '0')
-		}
-		return 0
-	}
-	var sec, nsec int64
-	for p := range intLen {
-		sec = sec*10 + digit(p)
-	}
-	for p := intLen; p < intLen+nanoDigits; p++ {
-		nsec = nsec*10 + digit(p)
-	}
-	belowNano := false
-	for p := max(intLen+nanoDigits, 0); p < len(d) && !belowNano; p++ {
-		belowNano = d[p] != '0'
-	}
-	if sec > MaxNumericDateSeconds || sec == MaxNumericDateSeconds && (nsec != 0 || belowNano) {
-		return time.Time{}, reject(ReasonDates)
-	}
-	if roundUp && belowNano {
+	if roundUp && finer {
 		if nsec++; nsec == int64(time.Second) {
 			sec, nsec = sec+1, 0
 		}
@@ -233,4 +171,12 @@ func parseNumericDate(raw json.RawMessage, roundUp bool) (time.Time, error) {
 	return time.Unix(sec, nsec), nil
 }
 
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+// digits reports whether s is a non-empty string of ASCII digits.
+func digits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
+}

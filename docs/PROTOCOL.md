@@ -227,9 +227,10 @@ hostile input.
 | `icLabel`            | A token with `icLabel` (Isolated Cloud) is refused: its keys live at another JWKS URL, and Isolated Cloud is not supported.      |
 | anything else        | Ignored, so new claims never break an old relay (A-5).                                                                           |
 
-**Dates.** `exp` and `nbf` are parsed without float rounding or integer
-overflow. Fractional seconds are accepted, bounded to the Unix-second
-interval 0 through 253402300799 inclusive. Missing, null, string or
+**Dates.** `exp` and `nbf` are plain decimal numbers, digits with an
+optional fraction, parsed without float rounding or integer overflow.
+Fractional seconds are accepted, bounded to the Unix-second interval 0
+through 253402300799 inclusive; exponent notation (`1.8e9`) is refused. Missing, null, string or
 out-of-range dates are refused, and so is a NumericDate with a minus sign,
 even `-0`. With the skew `RELAY_CLOCK_SKEW`, the relay requires `exp > nbf`,
 `now < exp + skew` and `now + skew >= nbf` (A-4). Dates are compared exactly

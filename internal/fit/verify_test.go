@@ -699,7 +699,7 @@ func TestVerifyClaims(t *testing.T) {
 		{"aud_name_case_variant", []string{audMember, `"Aud":"` + synthAppID + `",`}, ReasonAudience},
 
 		{"exp_fractional_accepted", exp(`1800000020.75`), ""},
-		{"exp_exponent_form_accepted", exp(`1.80000002E9`), ""},
+		{"exp_exponent_form", exp(`1.80000002E9`), ReasonDates},
 		{"exp_at_max_accepted", exp(`253402300799`), ""},
 		{"nbf_zero_accepted", nbf(`0`), ""},
 		{"dates_surrounded_by_whitespace_accepted", []string{expMember, "\"exp\" :\n1800000020 ,", nbfMember, "\"nbf\":\t1799999995\t,"}, ""},
@@ -775,8 +775,6 @@ func TestVerifyClockSkewBoundaries(t *testing.T) {
 		{"sub_nanosecond_exp_rounds_down", "1800000020.0000000009", "1799999995", 10 * time.Second, at(1800000030, 0), ReasonExpired},
 		{"sub_nanosecond_nbf_rounds_up", "1800000020", "1800000010.0000000001", 10 * time.Second, at(1800000000, 0), ReasonNotYetValid},
 		{"sub_nanosecond_nbf_rounded_up_accepted", "1800000020", "1800000010.0000000001", 10 * time.Second, at(1800000000, 1), ""},
-		{"exponent_exp_boundary_rejected", "1.80000002e9", "1799999995", 10 * time.Second, at(1800000030, 0), ReasonExpired},
-		{"exponent_exp_just_inside_accepted", "18000000200E-1", "1799999995", 10 * time.Second, at(1800000029, 999999999), ""},
 		{"exp_equal_nbf_fractional_rejected", "1800000000.5", "1800000000.5", 10 * time.Second, at(1800000000, 0), ReasonDates},
 		{"exp_one_nanosecond_after_nbf_accepted", "1800000000.000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ""},
 		{"sub_nanosecond_validity_rejected", "1800000000.0000000002", "1800000000.0000000001", 10 * time.Second, at(1800000000, 0), ReasonDates},
