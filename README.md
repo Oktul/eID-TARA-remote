@@ -1,61 +1,103 @@
 # eID Forge Remote
 
-The relay for the Oktul eID SSO Forge app: a small container that a customer
-runs in their own network, so that the app can call a login provider's token
-endpoint that accepts only allowlisted IP addresses, such as TARA live or
-Authentigate.
+The relay for the Oktul eID SSO Forge app. Some login providers, such as TARA
+live and Authentigate, accept token requests only from allowlisted IP
+addresses. A customer runs this small container in their own network, so the
+provider sees the customer's static IP, and the provider credential stays in
+the customer's relay, never in Forge or with Oktul.
 
-- The provider sees the customer's own static IP.
-- The provider credential, such as TARA's client secret, stays in the
-  customer's relay, never in Forge or with Oktul.
-- Only requests that Atlassian signed for the app, from the customer's own
-  site and Forge environment, get through.
-
-The relay is written in Go with the standard library only, and is built as a
-`scratch` image for `linux/amd64` and `linux/arm64`.
-
-## Status
-
-**Not yet released.** No image is published and no release line is
-supported yet. `PLAN.md` §14 tracks the phases.
-
-## Documentation
-
-- [`docs/SETUP.md`](docs/SETUP.md): running a relay, from prerequisites to
-  upgrades and troubleshooting.
-- [`docs/PROTOCOL.md`](docs/PROTOCOL.md): protocol v1, for implementers of
-  the Forge side.
-- [`docs/SUPPORT.md`](docs/SUPPORT.md): supported release lines and
-  maintenance.
-- [`PLAN.md`](PLAN.md): design, decisions and phases; normative until
-  publication.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md): how the
-  code is written, checked and reviewed.
-
-## Build and test
-
-Go's toolchain version is pinned in `go.mod`; there are no third-party
-modules.
-
-```sh
-go vet ./...
-go test ./...
-go build -trimpath -o relay ./cmd/relay
+```
+Forge app ──HTTPS──▶ reverse proxy ──HTTP──▶ relay ──HTTPS──▶ provider token endpoint
+                     (TLS, IP filter)          └──HTTPS──▶ Atlassian signing keys (JWKS)
 ```
 
-The image and its smoke test, the same ones CI runs (`.github/workflows/ci.yml`),
-need Docker with Buildx, bash and curl:
+A request reaches the provider only if it carries a valid Forge Invocation
+Token for this app, from the pinned site and Forge environment, on a
+configured route. Everything else is refused. The relay never logs bodies,
+tokens or the credential.
+
+**Status: not yet released.** No image is published, so the `0.1.0` tag in
+`deploy/` does not exist yet, and the admin-page parts below arrive with the
+Forge integration (Phase 3). `PLAN.md` §14 tracks the phases.
+
+## Run it
+
+[`docs/SETUP.md`](docs/SETUP.md) is the full guide; its sections are cited
+below.
+
+1. **Host:** a static outbound IP, Docker Compose v2 or Kubernetes on
+   `linux/amd64` or `linux/arm64`, an accurate clock, and outbound HTTPS to
+   the provider and `forge.cdn.prod.atlassian-dev.net` (§1). Have the
+   provider allowlist that IP (§6.2).
+2. **Deploy files:** copy `deploy/compose.yaml` and `deploy/Caddyfile`, or
+   `deploy/kubernetes/`, from the release tag, and set the image tag to that
+   release (§4, §5).
+3. **Settings:** replace the five `"<from the admin page>"` values with the
+   block the Oktul eID SSO admin page shows, keeping the quotes (§2):
+   `RELAY_APP_ID`, `RELAY_ENVIRONMENT_ID`, `RELAY_CLOUD_IDS`,
+   `RELAY_UPSTREAM_URL` and `RELAY_ROUTES`.
+4. **Credential:** for TARA, `secrets/upstream_auth` holds one line,
+   `Authorization: Basic <base64(client_id:client_secret)>`, readable by user
+   65532; also add TARA's CA file (§3.1, §3.2). Authentigate needs none:
+   remove the credential entries from the deploy file (§3.3).
+5. **Network:** serve HTTPS at a reverse proxy that admits only Atlassian's
+   egress ranges and caps inbound connections (§6.3). With the bundled
+   Caddy, set your DNS name and the IP filter in `Caddyfile` (§6.4), then run
+   `docker compose --profile caddy up -d`; behind your own proxy, run
+   `docker compose up -d`. Never publish port 8080. Kubernetes: §5 and §6.5.
+6. **Check:** `docker compose exec relay /relay healthcheck --ready`, then
+   enter the relay URL on the admin page (§8).
+
+Every setting is listed in [`docs/PROTOCOL.md`](docs/PROTOCOL.md) §8.
+Upgrades pin `:X.Y.Z` or follow `:X.Y` for automatic patches; there is no
+`latest` (§9).
+
+## Develop
+
+Go standard library only; the toolchain is pinned in `go.mod`. Before every
+commit (`AGENTS.md`):
+
+```sh
+gofmt -w .
+go vet ./...
+staticcheck ./...
+go test -race ./...
+govulncheck ./...
+```
+
+Use the `staticcheck` and `govulncheck` versions pinned in
+`.github/scripts/lib.sh`; `-race` needs cgo and a C compiler. On Linux,
+`.github/scripts/source-checks.sh all` runs every CI source check. Build and
+smoke-test the image as CI does (Docker Buildx, bash, curl):
 
 ```sh
 docker buildx build --load --tag eid-forge-remote:dev .
 .github/scripts/smoke.sh eid-forge-remote:dev
 ```
 
-The deploy files are in `deploy/`: `compose.yaml` with an optional
-`Caddyfile`, and `kubernetes/`.
+The acceptance load test, `go run ./test/load -relay <url>`, serves its own
+JWKS and upstream and prints the settings to start the relay with
+(`PLAN.md` §13).
+
+| Path        | Contents                                      |
+| ----------- | --------------------------------------------- |
+| `cmd/relay` | the binary: `serve`, `healthcheck`, `version` |
+| `internal/` | `config`, `fit`, `forward`, `server`          |
+| `deploy/`   | Compose, Caddy and Kubernetes files           |
+| `test/load` | acceptance load generator                     |
+| `.github/`  | CI, releases, Go patches, weekly scans        |
+
+## Documentation
+
+- [`docs/SETUP.md`](docs/SETUP.md): setup, network, upgrades and
+  troubleshooting.
+- [`docs/PROTOCOL.md`](docs/PROTOCOL.md): protocol v1 and every setting.
+- [`docs/SUPPORT.md`](docs/SUPPORT.md): supported release lines.
+- [`PLAN.md`](PLAN.md): design and decisions; normative until publication.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md), [`AGENTS.md`](AGENTS.md): code style,
+  checks and review.
 
 ## License and security
 
-Licensed under the EUPL-1.2; the `LICENSE` file and `SECURITY.md` are added
-when the repository is published (`PLAN.md` D3, §11). Report vulnerabilities
-privately, never in a public issue.
+EUPL-1.2. `LICENSE` and `SECURITY.md` are added at publication (`PLAN.md`
+D3, §11). Report vulnerabilities privately, never in a public issue.
