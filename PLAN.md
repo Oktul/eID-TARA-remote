@@ -688,7 +688,8 @@ promotes unreleased work from `main` into a patch release.
     JWKS URL is unreachable, and a bad setting exits with its name;
   - a check that the Go version in `go.mod`'s `toolchain` line and the
     builder image tag in the `Dockerfile` are the same;
-  - the release-line selection cases (`lines-test.sh`; bash, git and jq).
+  - the release-script cases (`lines-test.sh` and `release-test.sh`; bash,
+    git and jq).
 - **`release.yml`, on a `vX.Y.Z` tag, and callable from `go-patch.yml`**
   (`workflow_call`, because a tag pushed with a workflow's own token does not
   start other workflows):
@@ -800,6 +801,12 @@ promotes unreleased work from `main` into a patch release.
     has a `vX.Y.Z` tag; an unreleased newer branch does not displace it.
     Likewise, only tagged lines choose the current and previous major, so
     an unreleased future major ends no support (2026-10-16).
+  - Release tags are annotated (`git tag -a`; `go-patch.sh` annotates its
+    own), and `release.sh check-ref` refuses a lightweight one before
+    anything is built. The previous major's window starts at the `vN.0.0`
+    tagger date; a lightweight tag carries only its commit's date, so
+    `lines.sh` keeps that major, with a warning, until the tag is annotated
+    (2026-10-16).
   - The Go-minor job opens its pull request even when an earlier run pushed
     the branch but failed to open one.
   - Report jobs hold `contents: read` and `issues: write`; the publish job
@@ -871,8 +878,9 @@ promotes unreleased work from `main` into a patch release.
     for.
 - **Support policy** (`docs/SUPPORT.md`, V-5, M-2):
   - the newest minor release of the current major is supported, and the
-    previous major's newest minor for 12 months after a new major. Publish
-    the supported branches and exact end-of-support dates in `SUPPORT.md`;
+    previous major's newest minor for 12 months after a new major, counted
+    from its annotated `vN.0.0` tag (2026-10-16). Publish the supported
+    branches and exact end-of-support dates in `SUPPORT.md`;
   - a rebuild at least once a year; a Go patch release automatically within
     a day of Go publishing it; and within 7 days of a reachable critical or
     high fix that needs a new Go minor;
@@ -1236,6 +1244,15 @@ and the load generator naming the proxy limit in its overload hint.
 The packaging branch contains Phase 1 with the same fixes, so `main` can be
 fast-forwarded to it once these findings are closed; the Phase 1 branch is
 then superseded.
+
+**Round-3 findings fixed (2026-10-16), awaiting Codex's review.** Each fix
+has a case that fails without it:
+
+- Release dates: `lines.sh` reads `taggerdate`, so a lightweight `vN.0.0`
+  keeps the previous major and warns; `release.sh check-ref` refuses
+  lightweight release tags (§12). `lines-test.sh` and the new
+  `release-test.sh` cover both. That release.yml's checkout keeps tag
+  objects (`fetch-depth: 0`) is to be confirmed by the first release (§14).
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and the flaky test above. Phase 2 also needs the release-date

@@ -49,7 +49,7 @@ jobs:
       - name: No modules; one Go version for tests and image
         working-directory: src
         run: ../tools/.github/scripts/source-checks.sh module
-      - name: Supported release lines
+      - name: Release scripts
         working-directory: src
         run: ../tools/.github/scripts/source-checks.sh release-lines
       - name: gofmt

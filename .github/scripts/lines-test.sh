@@ -6,7 +6,10 @@ set -euo pipefail
 command -v jq >/dev/null || { echo 'jq is required' >&2; exit 1; }
 script=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lines.sh
 fixture=$(mktemp -d)
-trap 'rm -rf "$fixture"' EXIT
+# lines.sh's stderr is kept here, so an expected ::warning:: does not
+# become an annotation of every CI run.
+errors=$(mktemp)
+trap 'rm -rf "$fixture" "$errors"' EXIT
 git init --quiet "$fixture"
 git -C "$fixture" config user.name review
 git -C "$fixture" config user.email review@example.invalid
@@ -16,7 +19,10 @@ git -C "$fixture" commit --quiet --allow-empty --message fixture
 
 assert_lines() {
 	local name=$1 expected=$2 actual
-	actual=$(cd "$fixture" && bash "$script")
+	if ! actual=$(cd "$fixture" && bash "$script" 2>"$errors"); then
+		cat "$errors" >&2
+		exit 1
+	fi
 	if [[ $actual != "$expected" ]]; then
 		printf '%s: want %s, got %s\n' "$name" "$expected" "$actual" >&2
 		exit 1
@@ -54,3 +60,15 @@ assert_lines 'released major replaces oldest major' '["3.0","2.0"]'
 git -C "$fixture" tag --delete v3.0.0 v2.0.0 >/dev/null
 tag_at v2.0.0 "$expired"
 assert_lines 'previous major support expires' '["2.0"]'
+# A lightweight tag's only date is its commit's, which can be long before
+# the release, so it must not end the previous major's window.
+git -C "$fixture" tag --delete v2.0.0 >/dev/null
+GIT_COMMITTER_DATE=$expired git -C "$fixture" commit --quiet --allow-empty --message old
+git -C "$fixture" tag v2.0.0
+assert_lines 'lightweight major tag keeps the previous major' '["2.0","1.0"]'
+# The extra support is announced, so the tag gets fixed.
+warning=$(<"$errors")
+if [[ $warning != '::warning::v2.0.0 is a lightweight tag'* ]]; then
+	printf 'lightweight major tag: want a warning, got %s\n' "${warning:-nothing}" >&2
+	exit 1
+fi

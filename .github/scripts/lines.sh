@@ -2,8 +2,9 @@
 # Prints the supported release lines as a compact JSON array, such as
 # ["2.1","1.4"] (PLAN.md §12 Release lines): the newest released minor of the
 # newest major, plus the previous major's newest released minor until 12
-# months after the newest major's vN.0.0 tag. Unreleased branches do not
-# displace a supported line. Run in a clone with every branch and tag fetched.
+# months after the tagger date of the newest major's vN.0.0 tag. Unreleased
+# branches do not displace a supported line. Run in a clone with every branch
+# and tag fetched.
 set -euo pipefail
 # shellcheck source=.github/scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -41,14 +42,19 @@ lines=("$(newest_minor "$major")")
 
 previous=$(awk -v m="$major" '$1 < m' <<<"$majors" | tail -n 1)
 if [[ -n $previous ]]; then
-	# A major released without a vN.0.0 tag has no recorded start for the
-	# previous major's window, so keep it rather than end support early.
-	created=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/v$major.0.0")
+	# The window starts at the vN.0.0 tagger date (PLAN.md §12). A lightweight
+	# tag has none, and its commit's date can be months older than the
+	# release, so without a tagger date the previous major is kept rather
+	# than dropped early. stdout carries the JSON, so the warning goes to
+	# stderr.
+	created=$(git for-each-ref --format='%(taggerdate:unix)' "refs/tags/v$major.0.0")
 	keep=true
 	if [[ -n $created ]]; then
 		start=$(date -u -d "@$created" '+%Y-%m-%d %H:%M:%S')
 		end=$(date -u -d "$start UTC next year" '+%s')
 		(($(date -u '+%s') < end)) || keep=false
+	elif git rev-parse --quiet --verify "refs/tags/v$major.0.0" >/dev/null; then
+		printf '::warning::%s\n' "v$major.0.0 is a lightweight tag, so it has no release date: major $previous stays supported until v$major.0.0 is an annotated tag (PLAN.md §12)" >&2
 	fi
 	if [[ $keep == true ]]; then
 		lines+=("$(newest_minor "$previous")")

@@ -29,7 +29,8 @@ This table lists every supported line with its exact end-of-support date:
 - the newest minor of the current major is supported until the next minor
   is released; that date is entered here when it happens;
 - the previous major's newest minor ends 12 months after the new major's
-  release; that date is entered here on the day of the new major's release.
+  release, the date of its `vN.0.0` tag; that date is entered here on the
+  day of the new major's release.
 
 ## What a supported line receives
 

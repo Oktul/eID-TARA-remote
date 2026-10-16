@@ -4,8 +4,9 @@
 #
 # Usage (settings in the environment; see release.yml):
 #   release.sh meta            resolve and validate the tag, commit and line
-#   release.sh check-ref       in the source: the tag names the commit, on release/X.Y,
-#                              and an automatic release is a Go patch of the previous tag
+#   release.sh check-ref       in the source: the annotated tag names the commit, on
+#                              release/X.Y, and an automatic release is a Go patch of
+#                              the previous tag
 #   release.sh labels          the OCI archive has both platforms and this release's labels
 #   release.sh scan            govulncheck -mode=binary on both binaries in the archive
 #   release.sh record-archive  output the checked archive's SHA-256 and index digest
@@ -47,6 +48,10 @@ check_ref() {
 	[[ $(git rev-parse HEAD) == "$COMMIT" ]] || die "the checkout is not $COMMIT"
 	tagged=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
 	[[ $tagged == "$COMMIT" ]] || die "$TAG points to $tagged, not $COMMIT"
+	# lines.sh dates a major's release by its tagger date (PLAN.md §12); a
+	# lightweight tag has none. release.yml fetches every tag object.
+	[[ $(git cat-file -t "refs/tags/$TAG") == tag ]] ||
+		die "$TAG is a lightweight tag; release tags are annotated (git tag -a), so lines.sh can date the release (PLAN.md §12)"
 	if [[ $AUTO == true ]]; then
 		# A compromised tool in a go-patch.yml job can forge the hand-off
 		# record (PLAN.md §12, known residual risk), so an automatic release,

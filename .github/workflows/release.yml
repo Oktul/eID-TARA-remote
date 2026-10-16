@@ -98,7 +98,7 @@ jobs:
           path: src
           fetch-depth: 0 # tags and release branches for the next step
           persist-credentials: false
-      - name: The tag names this commit, on its release line
+      - name: The annotated tag names this commit, on its release line
         working-directory: src
         run: ../tools/.github/scripts/release.sh check-ref
       - name: Set up Go from go.mod

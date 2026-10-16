@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the ci.yml source checks (PLAN.md §12): one named check, or "all".
-# All but release-lines, the lines.sh fixtures, check the module in the
-# current directory. ci.yml runs them as separate steps and
+# All but release-lines, the fixtures of the release scripts, check the
+# module in the current directory. ci.yml runs them as separate steps and
 # go-patch-line.yml runs all of them, so both use the same commands.
 set -euo pipefail
 # shellcheck source=.github/scripts/lib.sh
@@ -34,7 +34,10 @@ check_gofmt() {
 }
 
 check_release_lines() {
-	bash "$(dirname "${BASH_SOURCE[0]}")/lines-test.sh"
+	local dir
+	dir=$(dirname "${BASH_SOURCE[0]}")
+	bash "$dir/lines-test.sh"
+	bash "$dir/release-test.sh"
 }
 
 check_vet() {
