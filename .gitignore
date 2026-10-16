@@ -6,3 +6,6 @@ coverage.*
 .env
 *.pem
 *.key
+/deploy/secrets/
+upstream_auth
+relay.env

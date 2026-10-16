@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Optional TLS front end for the relay (PLAN.md §6, §10, D6). Caddy terminates
+# TLS and passes requests over the private compose network to the relay.
+{
+	# Access logging is off: this file has no `log` directive, and Caddy writes
+	# no access log without one. Its handler error and proxy logs record URIs
+	# and header values, which PLAN.md §10 keeps out of logs, so they are
+	# dropped too. The relay logs every request under its own redaction rules.
+	log default {
+		exclude http.log.error http.handlers.reverse_proxy
+	}
+
+	servers {
+		timeouts {
+			# ProxyReadHeaderTimeout (PLAN.md §6): slow-header clients.
+			read_header 5s
+			# The relay's own read and idle limits (PLAN.md §6 R-1).
+			read_body 10s
+			idle 60s
+		}
+		# The relay's MaxHeaderBytes (PLAN.md §6 R-1).
+		max_header_size 16KiB
+		# No HTTP/3: compose publishes no UDP port.
+		protocols h1 h2
+	}
+}
+
+# Replace with the relay's public DNS name; Caddy obtains its certificate.
+relay.example.com {
+	# S-9 (PLAN.md §9, §10): accept only Atlassian's egress ranges. Replace the
+	# documentation ranges below with the current ones published at
+	# https://ip-ranges.atlassian.com/ and keep them up to date. remote_ip is
+	# the TCP peer; behind another load balancer, use client_ip with
+	# trusted_proxies instead.
+	# @outside not remote_ip 192.0.2.0/24 2001:db8::/32
+	# abort @outside
+
+	reverse_proxy relay:8080 {
+		# No retries: a token POST may already have spent the provider's
+		# one-time code (PLAN.md §5 R-8). Dropping the idempotency headers
+		# stops Go's transport from treating such a POST as replayable.
+		lb_retries 0
+		header_up -Idempotency-Key
+		header_up -X-Idempotency-Key
+
+		transport http {
+			# ProxyMaxConnections (PLAN.md §6).
+			max_conns_per_host 100
+			versions 1.1
+			# Below the relay's IdleTimeout (60s, PLAN.md §6 R-1), so Caddy
+			# drops an idle connection before the relay closes it. A token
+			# POST written onto a connection the relay is closing fails with
+			# 502 and, rightly, is not retried (§5 R-8).
+			keepalive 50s
+		}
+	}
+}

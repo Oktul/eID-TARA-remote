@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# The relay on Docker Compose (PLAN.md §10 O-6).
+#   docker compose up -d                   the relay, behind your own proxy
+#   docker compose --profile caddy up -d   the relay behind Caddy (Caddyfile)
+name: eid-forge-remote
+
+# Docker's default log driver never rotates, and the relay logs every request
+# (PLAN.md §10 O-4), so a flood of rejected requests could fill the host's
+# disk. This keeps at most three 10 MB files per service.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  relay:
+    # OWNER is the GitHub owner, still open (PLAN.md §15 Q6). The version is
+    # pinned by default: upgrade by hand after reading the release notes, or
+    # opt in to automatic patches by following :X.Y (PLAN.md §12).
+    image: ghcr.io/OWNER/eid-forge-remote:0.1.0
+    restart: unless-stopped
+    # Longer than RELAY_SHUTDOWN_GRACE (15s), so in-flight requests finish
+    # before Docker kills the process (PLAN.md §6 R-11).
+    stop_grace_period: 30s
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # The container limit of PLAN.md §6 R-4. Without memswap_limit, Docker
+    # adds as much swap again, so on a host with swap the relay could exceed
+    # the limit and page the credential to disk (R-10).
+    mem_limit: 128m
+    memswap_limit: 128m
+    # Go runs about one thread per CPU; the health check is a second process.
+    pids_limit: 256
+    logging: *logging
+    environment:
+      # Replace these with the block from the eID SSO admin page (PLAN.md §8).
+      # The relay refuses to start until they are valid (PLAN.md §6 R-13).
+      RELAY_APP_ID: "<from the admin page>"
+      RELAY_ENVIRONMENT_ID: "<from the admin page>"
+      RELAY_CLOUD_IDS: "<from the admin page>"
+      RELAY_UPSTREAM_URL: "<from the admin page>"
+      RELAY_ROUTES: "<from the admin page>"
+      # The credential stays out of this file. For a provider without a
+      # relay-held credential, such as Authentigate, remove this line and
+      # both `secrets` entries (PLAN.md §5).
+      RELAY_UPSTREAM_AUTH_FILE: /run/secrets/upstream_auth
+    secrets:
+      - upstream_auth
+    healthcheck:
+      test: ["CMD", "/relay", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # No published port: only the proxy on this network reaches the relay
+    # (PLAN.md §6). For a proxy on this host instead of Caddy, publish the
+    # port on loopback only, never on a public address:
+    # ports:
+    #   - "127.0.0.1:8080:8080"
+
+  caddy:
+    # Optional TLS front end, configured in Caddyfile (PLAN.md §6, §10).
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    profiles: [caddy]
+    restart: unless-stopped
+    depends_on: [relay]
+    ports:
+      # 443 for the Forge app; 80 for ACME HTTP challenges and the redirect.
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and Caddy's own state: its only writable paths.
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    # No swap, as for the relay.
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 256
+    logging: *logging
+
+secrets:
+  upstream_auth:
+    # One line, the credential header: for TARA "Authorization: Basic " and
+    # base64(client_id:client_secret) (PLAN.md §5). Docker mounts the file as
+    # it is, so make it readable by the relay only: chown 65532, chmod 400
+    # (another owner with userns-remap or rootless Docker: docs/SETUP.md §3.1).
+    file: ./secrets/upstream_auth
+
+volumes:
+  caddy_data:
+  caddy_config:

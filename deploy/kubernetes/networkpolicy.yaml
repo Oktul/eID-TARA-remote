@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Only the ingress controller reaches the relay, and the relay reaches only
+# DNS and HTTPS (PLAN.md §6, §10). It takes effect only with a network plugin
+# that enforces NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: eid-forge-remote
+  labels:
+    app.kubernetes.io/name: eid-forge-remote
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: eid-forge-remote
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Replace "ingress" with your ingress controller's namespace. Kubelet
+    # probes come from the node, which most network plugins allow regardless.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Cluster DNS; adjust the selectors if your cluster's DNS differs.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The provider and the Atlassian JWKS, at any address. Never pin the JWKS
+    # host with ipBlock: it is a CDN whose addresses change, and pinned ones
+    # stop the key refresh later, so the relay goes not ready once the last
+    # keys reach RELAY_JWKS_MAX_AGE (PLAN.md §4.5). Enforce the host names of
+    # PLAN.md §10 at an egress firewall or proxy, or with your network
+    # plugin's FQDN policies (docs/SETUP.md §5). With HTTPS_PROXY, add a rule
+    # for the proxy's address and port. Keep this one while NO_PROXY exempts
+    # the provider or the JWKS host, which is then dialled directly
+    # (PLAN.md §5, docs/SETUP.md §6.6).
+    - ports:
+        - protocol: TCP
+          port: 443

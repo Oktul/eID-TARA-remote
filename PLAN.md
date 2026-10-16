@@ -414,6 +414,9 @@ reading headers and idle keep-alives. The supplied deployment uses named
 limits, initially `ProxyMaxConnections = 100` to the relay and
 `ProxyReadHeaderTimeout = 5s`; verify or lower them during acceptance. A
 proxy that cannot enforce them needs an equivalent documented ingress limit.
+The proxy closes its idle connections to the relay before the relay's 60 s
+`IdleTimeout` does (the supplied Caddyfile uses 50 s), so a token POST is
+never written onto a connection the relay is closing (R-1, R-8; 2026-10-15).
 The relay port is reachable only by that proxy and local/cluster health
 probes, never directly from the public network. Health probes bypass the
 forwarding semaphore, so a full relay answers `503 too_busy` without causing
@@ -585,10 +588,15 @@ spike scope and explicit gates, and basic CI moves into Phase 1 (§14).
   - `deploy/compose.yaml` (O-6): `restart: unless-stopped`, the health
     check, `mem_limit: 128m`, `pids_limit`, `read_only: true`,
     `cap_drop: [ALL]`, `no-new-privileges`, user 65532, and an optional Caddy
-    service in front;
+    service in front. Also `memswap_limit` equal to `mem_limit` (no swap),
+    json-file logs rotated at 3 × 10 MB per service and a 30 s stop grace
+    above `RELAY_SHUTDOWN_GRACE` (2026-10-15);
   - `deploy/kubernetes/` (O-7): Deployment, Service, Secret, NetworkPolicy,
     liveness on `/livez`, readiness on `/readyz`, and a matching
-    `securityContext`.
+    `securityContext`. Also a 5 s `preStop` sleep, so endpoint removal
+    reaches the ingress before SIGTERM (Kubernetes 1.30 or later), service
+    links off, and the Secret created with `kubectl create secret` rather
+    than by editing the example (2026-10-15).
 - **Setup guide** `docs/SETUP.md` (O-8):
   - what the customer provides (the prerequisites below);
   - copying the block from the admin page;
@@ -613,7 +621,7 @@ internal/fit/         FIT verification and the JWKS cache
 internal/forward/     route matching, header filtering, upstream client
 internal/server/      HTTP server, middleware (request ID, recover, limiter, logging), health
 test/load/            small load generator for the acceptance runs (no dependencies)
-deploy/               compose.yaml, kubernetes/
+deploy/               compose.yaml, Caddyfile, kubernetes/
 docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
 .github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml
 Dockerfile, go.mod, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
