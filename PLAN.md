@@ -1364,6 +1364,14 @@ Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and the review of the fixes above. Phase 2 also needs its release
 verifications (§14) on a GitHub repository.
 
+**Codex review, round 2, Phase 0 results (2026-10-16).** Removed the real
+test-site label from the spike evidence in §14. Only the site's capability
+matters to the PINNED gate; the label violated the sanitized-evidence rule.
+The recorded observations and the open PINNED gate are unchanged.
+`gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
+and `govulncheck ./...` pass in order; no vulnerabilities found. Race tests
+use the pinned Go 1.27.2 Linux builder. All release-script fixtures pass.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
