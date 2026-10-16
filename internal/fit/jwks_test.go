@@ -50,7 +50,8 @@ func oddModulus(bits int) *big.Int {
 	return n.SetBit(n, 0, 1)
 }
 
-// testJWK returns the JWKS entry for pub in the form Atlassian publishes.
+// testJWK returns the JWKS entry for pub with the members Atlassian
+// publishes, in RFC 7518's unpadded encoding.
 func testJWK(kid string, pub *rsa.PublicKey) map[string]any {
 	return map[string]any{
 		"kty": "RSA",
@@ -60,6 +61,12 @@ func testJWK(kid string, pub *rsa.PublicKey) map[string]any {
 		"n":   segment(string(pub.N.Bytes())),
 		"e":   segment(string(big.NewInt(int64(pub.E)).Bytes())),
 	}
+}
+
+// atlassianJWK returns the entry as Atlassian's live JWKS writes it
+// (2026-10-16): n padded with "=", e unpadded, and a kid in Forge's form.
+func atlassianJWK(kid string, pub *rsa.PublicKey) map[string]any {
+	return jwkWith(testJWK("forge/invocation-token/wf-"+kid, pub), "n", base64.URLEncoding.EncodeToString(pub.N.Bytes()))
 }
 
 func jwkWith(jwk map[string]any, name string, v any) map[string]any {
@@ -158,6 +165,10 @@ func TestParseJWKSFailsWholeDocument(t *testing.T) {
 	pub := testPublicKeys()[0]
 	good := testJWK("k1", pub)
 	n := good["n"].(string)
+	// A 2048-bit modulus is 256 octets, so its padded form ends in "==".
+	padded := base64.URLEncoding.EncodeToString(pub.N.Bytes())
+	// A 2064-bit modulus is 258 octets, a whole number of quanta: no padding.
+	fullQuantum := segment(string(oddModulus(2064).Bytes()))
 	even := new(big.Int).SetBit(oddModulus(MinRSAModulusBits), 0, 0)
 	undersized := testJWK("k2", &rsa.PublicKey{N: oddModulus(1024), E: 65537})
 	tooMany := make([]map[string]any, MaxJWKSKeys+1)
@@ -200,7 +211,18 @@ func TestParseJWKSFailsWholeDocument(t *testing.T) {
 		{"n_null", testJWKS(t, jwkWith(good, "n", nil)), jwksBadKey},
 		{"n_not_string", testJWKS(t, jwkWith(good, "n", 1)), jwksBadKey},
 		{"n_empty", testJWKS(t, jwkWith(good, "n", "")), jwksBadKey},
-		{"n_padded", testJWKS(t, jwkWith(good, "n", base64.URLEncoding.EncodeToString(pub.N.Bytes()))), jwksBadKey},
+		// Padding is accepted only where it completes the last quantum
+		// (PLAN.md §4.5, 2026-10-16); every other "=" fails.
+		{"n_padding_short", testJWKS(t, jwkWith(good, "n", padded[:len(padded)-1])), jwksBadKey},
+		{"n_padding_extra", testJWKS(t, jwkWith(good, "n", padded+"=")), jwksBadKey},
+		{"n_padding_on_full_quantum", testJWKS(t, jwkWith(good, "n", fullQuantum+"==")), jwksBadKey},
+		{"n_padding_inside", testJWKS(t, jwkWith(good, "n", padded[:100]+"="+padded[100:])), jwksBadKey},
+		{"n_padding_only", testJWKS(t, jwkWith(good, "n", "==")), jwksBadKey},
+		{"n_padded_line_break", testJWKS(t, jwkWith(good, "n", padded[:100]+"\r\n"+padded[100:])), jwksBadKey},
+		{"n_padded_trailing_line_break", testJWKS(t, jwkWith(good, "n", padded+"\n")), jwksBadKey},
+		{"n_padded_standard_alphabet", testJWKS(t, jwkWith(good, "n", "+"+padded[1:])), jwksBadKey},
+		{"n_padded_non_canonical", testJWKS(t, jwkWith(good, "n", nonCanonical(t, n)+"==")), jwksBadKey},
+		{"n_padded_leading_zero_octet", testJWKS(t, jwkWith(good, "n", base64.URLEncoding.EncodeToString(append([]byte{0}, pub.N.Bytes()...)))), jwksBadKey},
 		{"n_standard_alphabet", testJWKS(t, jwkWith(good, "n", "+"+n[1:])), jwksBadKey},
 		{"n_line_break", testJWKS(t, jwkWith(good, "n", n[:100]+"\r\n"+n[100:])), jwksBadKey},
 		{"n_non_canonical", testJWKS(t, jwkWith(good, "n", nonCanonical(t, n))), jwksBadKey},
@@ -210,7 +232,9 @@ func TestParseJWKSFailsWholeDocument(t *testing.T) {
 		{"e_missing", testJWKS(t, jwkWithout(good, "e")), jwksBadKey},
 		{"e_not_string", testJWKS(t, jwkWith(good, "e", 65537)), jwksBadKey},
 		{"e_empty", testJWKS(t, jwkWith(good, "e", "")), jwksBadKey},
-		{"e_padded", testJWKS(t, jwkWith(good, "e", "Aw==")), jwksBadKey},
+		{"e_padding_short", testJWKS(t, jwkWith(good, "e", "Aw=")), jwksBadKey},
+		{"e_padding_on_full_quantum", testJWKS(t, jwkWith(good, "e", "AQAB==")), jwksBadKey},
+		{"e_padding_only", testJWKS(t, jwkWith(good, "e", "====")), jwksBadKey},
 		{"e_leading_zero_octet", testJWKS(t, jwkWith(good, "e", "AAEAAQ")), jwksBadKey},
 		{"e_one", testJWKS(t, jwkWith(good, "e", "AQ")), jwksBadKey},
 		{"e_even", testJWKS(t, jwkWith(good, "e", "AQAA")), jwksBadKey},
@@ -219,7 +243,7 @@ func TestParseJWKSFailsWholeDocument(t *testing.T) {
 		{"e_five_octets", testJWKS(t, jwkWith(good, "e", "AQABAAE")), jwksBadKey},
 		{"bad_key_after_good_key", testJWKS(t, good, jwkWith(testJWK("k2", pub), "e", "AQ")), jwksBadKey},
 		// The size of a malformed n is unknown, so even a small one fails.
-		{"malformed_n_on_undersized_key", testJWKS(t, good, jwkWith(undersized, "n", base64.URLEncoding.EncodeToString(oddModulus(1024).Bytes()))), jwksBadKey},
+		{"malformed_n_on_undersized_key", testJWKS(t, good, jwkWith(undersized, "n", base64.URLEncoding.EncodeToString(oddModulus(1024).Bytes())+"=")), jwksBadKey},
 		{"leading_zero_n_on_undersized_key", testJWKS(t, good, jwkWith(undersized, "n", segment("\x00"+string(oddModulus(1024).Bytes())))), jwksBadKey},
 		{"duplicate_kid", testJWKS(t, good, good), jwksDuplicateKID},
 		{"duplicate_kid_escaped", escapedKID, jwksDuplicateKID},
@@ -264,6 +288,7 @@ func TestParseJWKSSkipsKeysItDoesNotUse(t *testing.T) {
 		{"undersized_with_even_exponent", jwkWith(undersized, "e", "Ag"), skipUndersized},
 		{"undersized_with_exponent_missing", jwkWithout(undersized, "e"), skipUndersized},
 		{"undersized_with_even_modulus", jwkWith(undersized, "n", segment(string(new(big.Int).SetBit(oddModulus(MinRSAModulusBits-1), 0, 0).Bytes()))), skipUndersized},
+		{"undersized_with_padded_n", jwkWith(undersized, "n", base64.URLEncoding.EncodeToString(oddModulus(1024).Bytes())), skipUndersized},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -290,13 +315,24 @@ func TestParseJWKSAcceptsEligibleKeys(t *testing.T) {
 		maxKeys[i] = testJWK("k"+strconv.Itoa(i+1), pub)
 	}
 	withExtra := bytes.Replace(testJWKS(t, jwkWith(good, "x5t", "unused")), []byte(`{"keys"`), []byte(`{"extra":{"a":[1]},"keys"`), 1)
+	oneEquals := &rsa.PublicKey{N: oddModulus(2056), E: 65537}
+	// Two keys under Forge-style kids, then the first renamed "k1" so the
+	// table's check finds it.
+	atlassianLive := bytes.Replace(
+		testJWKS(t, atlassianJWK("1309d2a6", pub), atlassianJWK("190b02b6", testPublicKeys()[1])),
+		[]byte(`"forge/invocation-token/wf-1309d2a6"`), []byte(`"k1"`), 1)
 	tests := []struct {
 		name  string
 		doc   []byte
 		count int
 		want  *rsa.PublicKey // the key expected under "k1"
 	}{
-		{"atlassian_form", testJWKS(t, good), 1, pub},
+		{"unpadded_form", testJWKS(t, good), 1, pub},
+		// Atlassian's live JWKS pads n (2026-10-16): two "=" for a 2048-bit
+		// modulus, one for a 2056-bit one, and e may be padded too.
+		{"atlassian_live_form", atlassianLive, 2, pub},
+		{"n_padded_one_character", testJWKS(t, jwkWith(testJWK("k1", oneEquals), "n", base64.URLEncoding.EncodeToString(oneEquals.N.Bytes()))), 1, oneEquals},
+		{"e_padded", testJWKS(t, jwkWith(good, "e", "Aw==")), 1, &rsa.PublicKey{N: pub.N, E: 3}},
 		{"use_and_alg_absent", testJWKS(t, jwkWithout(jwkWithout(good, "use"), "alg")), 1, pub},
 		{"unknown_members_ignored", withExtra, 1, pub},
 		{"exponent_three", testJWKS(t, jwkWith(good, "e", "Aw")), 1, &rsa.PublicKey{N: pub.N, E: 3}},

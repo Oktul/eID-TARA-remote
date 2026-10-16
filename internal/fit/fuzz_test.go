@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math/big"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -210,6 +211,10 @@ func FuzzParseJWKS(f *testing.F) {
 	// entry claiming the kept kid.
 	f.Add(testJWKS(f, testJWK("k1", keys[0]), jwkWith(testJWK("k2", keys[1]), "use", "enc")))
 	f.Add(testJWKS(f, testJWK("k1", keys[0]), map[string]any{"kty": "EC", "kid": "k1"}))
+	// Atlassian's live form pads n (PLAN.md §4.5, 2026-10-16), and a near
+	// miss with one "=" too many.
+	f.Add(testJWKS(f, atlassianJWK("k1", keys[0]), atlassianJWK("k2", keys[1])))
+	f.Add(testJWKS(f, jwkWith(atlassianJWK("k1", keys[0]), "n", base64.URLEncoding.EncodeToString(keys[0].N.Bytes())+"=")))
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		got, err := parseJWKS(raw, discardLogger())
 		if err != nil {
@@ -261,14 +266,20 @@ func FuzzParseJWKS(f *testing.F) {
 	})
 }
 
-// jwkParamIs reports whether v is a string of unpadded base64url that
-// decodes to want, by encoding/base64 rather than the parser's own decoder.
+// jwkParamIs reports whether v is a string of base64url, unpadded or with
+// exactly the padding its length needs, that decodes to want, by
+// encoding/base64 rather than the parser's own decoder. Go's decoders skip
+// CR and LF, which the parser refuses, so those fail here first.
 func jwkParamIs(v any, want []byte) bool {
 	s, ok := v.(string)
-	if !ok {
+	if !ok || strings.ContainsAny(s, "\r\n") {
 		return false
 	}
-	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	enc := base64.RawURLEncoding
+	if strings.HasSuffix(s, "=") {
+		enc = base64.URLEncoding
+	}
+	b, err := enc.Strict().DecodeString(s)
 	return err == nil && bytes.Equal(b, want)
 }
 

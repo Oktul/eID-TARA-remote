@@ -6,12 +6,14 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -533,16 +535,30 @@ func parseJWK(jwk object) (kid string, key *rsa.PublicKey, skip jwkSkip, err err
 	return kid, &rsa.PublicKey{N: n, E: int(e)}, "", nil
 }
 
-// jwkParam decodes the RSA integer member name (RFC 7518 §6.3.1): strict,
-// unpadded base64url of an unsigned big-endian value without leading zero
-// octets. It applies the same alphabet check and decoder as FIT parts
-// (base64URL, decodePart).
+// jwkParam decodes the RSA integer member name (RFC 7518 §6.3.1): strict
+// base64url of an unsigned big-endian value without leading zero octets.
+// RFC 7518 wants it unpadded, but Atlassian's live JWKS pads n with "="
+// (Phase 0 dry run, 2026-10-16), so exactly the padding that completes the
+// last quantum is also accepted; any other "=" fails (PLAN.md §4.5). FIT
+// parts stay strictly unpadded. The text before the padding passes the same
+// alphabet check as FIT parts, since Go's decoders skip CR and LF.
 func jwkParam(jwk object, name string) ([]byte, bool) {
 	s, _, err := jwk.str(name)
-	if err != nil || !base64URL(s) {
+	if err != nil {
 		return nil, false
 	}
-	b, err := decodePart(s)
+	data := strings.TrimRight(s, "=")
+	if !base64URL(data) {
+		return nil, false
+	}
+	var b []byte
+	if data == s {
+		b, err = decodePart(data)
+	} else {
+		// The padded decoder refuses a wrong "=" count, including one on
+		// text that needs none, and in strict mode non-canonical bits.
+		b, err = base64.URLEncoding.Strict().DecodeString(s)
+	}
 	if err != nil || len(b) == 0 || b[0] == 0 {
 		return nil, false
 	}

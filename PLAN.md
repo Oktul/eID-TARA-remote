@@ -284,6 +284,18 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   handshake and dial have their own timeouts. Only a `200` answer counts as
   a successful fetch. Skipped keys are logged as one count per reason, never
   per key.
+- **Padded key parameters (owner, 2026-10-16).** `n` and `e` may also carry
+  exactly the `=` padding that completes their last base64url quantum. RFC
+  7518 §6.3.1 says unpadded, but Atlassian's live JWKS pads every `n`
+  (Phase 0 dry run, 2026-10-16), so a relay that refused it never became
+  ready. Any other `=` fails the refresh as invalid parameters: a wrong
+  count, padding on a value that needs none, padding alone or inside the
+  value. The decoded value must still be canonical (no stray trailing bits)
+  and have no leading zero octet. FIT parts stay strictly unpadded (§4.4):
+  a token's encoding is what is signed, while a key's two spellings decode
+  to the same number. This broadens accepted input, so under §4.6 it ships
+  in a minor release, never as an automatic patch; no release exists yet,
+  so it is part of the first.
 
 ### 4.6 Compatibility and conformance (2026-10-15)
 
@@ -1268,6 +1280,16 @@ has a case that fails without it:
   builder pass; of 600 checked, 8 needed a second attempt.
 
 Still open: Codex's review of these fixes (round 2), then Claude's round 3.
+
+**Phase 0 dry-run fix (2026-10-16), branch `claude/jwks-padding`, awaiting
+Codex's review.** Preparing the spike, the relay was run against
+Atlassian's live JWKS and never became ready: each refresh failed with
+`key_parameters` because Atlassian pads `n`. The owner decided to accept
+exact padding on `n` and `e` only (§4.5). `jwks_test.go` covers both
+padded lengths, a padded `e`, a set shaped like the live one and every
+misplaced `=`; the fuzz oracle accepts both spellings, and a one-minute fuzz
+run of `FuzzParseJWKS` passed. The relay built from this branch reached
+`/readyz` 200 against the live JWKS.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and the review of the fixes above. Phase 2 also needs its release

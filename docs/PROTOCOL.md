@@ -286,7 +286,9 @@ lives 25 s; the relay does not depend on that lifetime.
   `RS256`, a non-empty string `kid` and a modulus of at least 2048 bits.
   Other key types, uses and algorithms, and smaller moduli, are skipped, and
   logged as one count per fixed reason, never per key.
-  `n` and `e` are strict base64url without a leading zero octet; `e` is odd
+  `n` and `e` are strict base64url without a leading zero octet, unpadded
+  or with exactly the `=` padding that completes the last quantum, since
+  Atlassian's JWKS pads `n` (any other `=` is invalid); `e` is odd
   and from 3 to 2³¹−1; the modulus is odd and has at most 8192 bits, which
   bounds the cost of verification. RSA verification refuses an even modulus
   or exponent, so such a key fails the refresh at once instead of failing
