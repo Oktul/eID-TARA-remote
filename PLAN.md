@@ -118,7 +118,7 @@ these checks.
 | 404    | `route_not_allowed`    | Method and path not allowed, a query string, or an odd path |
 | 413    | `body_too_large`       | Request body over the limit                                 |
 | 500    | `internal_error`       | A recovered internal error (R-6)                            |
-| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream              |
+| 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, or an answer that is not valid HTTP/1.1, including a final status below 200 and a header over 32 KiB (2026-10-15) |
 | 502    | `upstream_too_large`   | Upstream body over the limit                                |
 | 503    | `not_ready`            | No usable keys loaded, or their maximum age is reached (K-5) |
 | 503    | `too_busy`             | Concurrency cap reached                                     |
@@ -307,6 +307,13 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 - **Paths:** exact match only. A path with `..`, `//`, a backslash, an
   encoded slash or dot, or non-ASCII characters is refused. Query strings are
   refused in v1, since token calls have none.
+  Configured paths (routes and the base path) may use only ASCII letters,
+  digits and `-._~!$&'()*+;=:@/`, with no `.` segment (2026-10-15). This
+  refuses all percent-encoding, which covers encoded slashes and dots, and
+  the comma that separates `RELAY_ROUTES` items. Requests are compared byte
+  for byte with the raw request target, so a request breaking any of these
+  rules cannot match. Route methods are `GET`, `POST`, `PUT`, `PATCH` and
+  `DELETE`.
 - **Request headers:** `Host` becomes the upstream host. `Authorization`,
   hop-by-hop headers, `x-forge-oauth-*`, `x-b3-*` and everything else are
   dropped. Only the allowed headers pass (default `Content-Type`, `Accept`).
@@ -320,13 +327,17 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   The credential setting may supply `Authorization`, but cannot supply
   routing, framing, hop-by-hop, idempotency or relay-owned headers. Validate
   header names and reject CR/LF in configured values without printing them.
+  The credential value also refuses every other control character except
+  tab (2026-10-15).
 - **Credentials:**
   - TARA: `Authorization: Basic base64(client_id:client_secret)`, stored in
     the relay (`client_secret_basic` is TARA's only method, R12).
   - Authentigate: `private_key_jwt`. Forge signs the client assertion and
     sends it in the body; the relay sets no credential.
 - **Response:** read up to the limit before anything is sent, so an oversize
-  answer becomes a clean `502 upstream_too_large` (R-4). Only allowed headers
+  answer becomes a clean `502 upstream_too_large` (R-4). The response header
+  is capped at `UpstreamMaxHeaderBytes = 32 KiB` before that limit applies
+  (2026-10-15). Only allowed headers
   pass (default `Content-Type`, `Cache-Control`, `Pragma`).
   Response allowlists cannot include hop-by-hop headers, `Content-Length`,
   `Set-Cookie`, `Relay-*` or headers nominated by `Connection`; nomination
@@ -340,7 +351,10 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   - optionally only the CAs in `RELAY_UPSTREAM_CA_FILE` are trusted
     (TARA's documented trust anchors, R12);
   - HTTP/1.1 only;
-  - connections are reused, with at most 10 idle per host (R-9).
+  - connections are reused, with at most 10 idle per host (R-9);
+  - a 30 s dial timeout and a 10 s TLS handshake timeout, because Go dials
+    on a context detached from the request, so a stalled handshake would
+    otherwise outlive it (2026-10-16; the JWKS client too).
 - **No application retries (R-8).** A token exchange may have consumed the
   one-time code even if its response was lost. Neither the relay, the supplied
   proxy configuration nor Forge automatically retries that exchange. Drop

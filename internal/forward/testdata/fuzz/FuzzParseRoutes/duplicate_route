@@ -1,0 +1,2 @@
+go test fuzz v1
+string("POST /oidc/token,POST /oidc/token")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("https://[fe80::1%25en0]")
