@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# gitleaks for ci.yml (PLAN.md §12): the default rules with one narrow
+# exception. Two tests plant a synthetic secret marker in rejected input and
+# check that no log line or error repeats it (PLAN.md §10, §13). The default
+# generic-api-key rule takes the marker for a key, so it is allowed only for
+# that rule, in those two files, with that exact value. Every other rule,
+# file and value is still scanned.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic secret markers in log-redaction tests (PLAN.md §13)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^internal/fit/jwks_test\.go$''',
+  '''^internal/forward/forward_test\.go$''',
+]
+regexes = [
+  '''^SECRET-MARKER-[0-9a-f]{4}$''',
+]

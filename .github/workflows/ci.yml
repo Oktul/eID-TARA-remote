@@ -1,0 +1,70 @@
+# Source checks on every push and pull request (PLAN.md §12 ci.yml).
+# workflow_call lets the release workflow check the exact commit it
+# publishes.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to check; empty checks the commit that started the run
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # The scripts come from the run's own commit, so a call from main checks
+      # an older release line with main's checks (PLAN.md §12).
+      - name: Check out the CI scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Check out the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          path: src
+          fetch-depth: 0 # gitleaks scans the whole history
+          persist-credentials: false
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: No modules; one Go version for tests and image
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh module
+      - name: gofmt
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh gofmt
+      - name: go vet
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh vet
+      - name: staticcheck
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh staticcheck
+      - name: go test -race
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh test
+      - name: govulncheck
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh govulncheck
+      - name: gitleaks
+        working-directory: src
+        run: ../tools/.github/scripts/source-checks.sh gitleaks

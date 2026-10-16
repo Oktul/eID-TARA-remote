@@ -794,7 +794,11 @@ promotes unreleased work from `main` into a patch release.
   - **Fuzz:** a Go fuzz test (`go test -fuzz`, standard library) feeds the
     token parser arbitrary input and must never panic or accept a token
     without a valid signature. CI runs its seed corpus with the unit tests;
-    a longer run (at least an hour) happens before v1.0.0.
+    a longer run (at least an hour) happens before v1.0.0. The same applies
+    to the other parsers (2026-10-15): strict JSON, NumericDate (against an
+    exact `math/big` oracle), JWKS, routes, paths, the upstream URL, the
+    credential header, setting lists, CA bundles, digits and unknown names,
+    each with a seed corpus in its package's `testdata/fuzz/`.
   - **Keys:** unreachable at startup, backoff, rotation and removed keys,
     last-good snapshots kept only to their maximum age, readiness expiry
     and recovery, duplicate IDs, malformed/empty/oversized sets and atomic
@@ -925,8 +929,9 @@ promotes unreleased work from `main` into a patch release.
 ## 16. Review evidence and implementation gates (2026-10-15)
 
 The plan review changes in §9 are accepted for documentation. No Phase 0
-experiment has run and no implementation, Forge integration, tag or push is
-authorized by this revision.
+experiment has run. This revision authorized no implementation; D10, later
+the same day, authorized Phases 1 and 2 in this repository. Forge
+integration, tags and pushes remain unauthorized.
 
 - [x] Define unambiguous tenant pins, strict parsing and key trust expiry.
 - [x] Isolate automatic patches from unreleased development work and specify
@@ -948,20 +953,40 @@ authorized by this revision.
   preserve standard-library interface signatures and propagate cancellation
   through the request or underlying operation (§6).
 
-Validation of these documentation fixes: the five required Go commands were
+Validation of these documentation fixes (2026-10-15, before any source
+existed): the five required Go commands were
 attempted in order but could not start because `gofmt`, `go`, `staticcheck`
 and `govulncheck` are unavailable. There is still no Go source or `go.mod`;
 no passing source-check result is claimed.
 The owner approved documentation-only commits with this limitation on
 2026-10-15; the Go checks remain mandatory once source and tools exist.
 
-Documentation validation for this revision: the required `gofmt -w .`,
+Documentation validation for this revision (2026-10-15, before any source
+existed): the required `gofmt -w .`,
 `go vet ./...`, `staticcheck ./...`, `go test -race ./...` and
 `govulncheck ./...` commands were attempted in order but could not start
 because those executables are unavailable in this workspace's command path.
 There is no Go source or `go.mod` yet, so no source-check result is claimed.
 Document consistency and whitespace checks apply to this planning revision;
 the Go checks remain mandatory once the Phase 0/1 source and tools exist.
+
+**Implementation record (2026-10-16, D10).** Phase 1 is on
+`claude/phase-1-relay-core`. Claude agents wrote it; other Claude agents
+reviewed it in three rounds before Codex's round (`AGENTS.md`), the third
+only of the second's fixes, each finding checked by a skeptic. Results on
+the final tree, on Windows with Go 1.27.2:
+
+- `gofmt`, `go vet ./...`, `staticcheck ./...` (2026.2.2) and
+  `govulncheck ./...` (v1.9.0, no vulnerabilities) pass.
+- `go test -race ./...` passes in the pinned `golang:1.27.2-trixie` image on
+  linux/amd64; the workstation has no C compiler for the race detector.
+- Every fuzz target ran for seconds to a minute; the hour-long run before
+  v1.0.0 (§13) is still to do.
+- Not run: any GitHub workflow (the repository has no remote) and
+  `gitleaks` (not installed).
+
+Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
+GitHub and Codex's review.
 
 Primary references consulted for the review on 2026-10-15:
 
