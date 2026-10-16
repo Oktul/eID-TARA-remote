@@ -522,10 +522,11 @@ func (r *relay) waitRefused(t *testing.T) {
 // only once the listener is closed, so the request is served only if the key
 // worker outlives the listener; otherwise it gets 401 invalid_token.
 //
-// The request waits for the fetch at most fit.FITKeyWait. An answer that
-// took that long proves nothing, because the relay may rightly have stopped
+// The request waits for the fetch at most fit.FITKeyWait. A 401 that took
+// that long proves nothing, because the relay may rightly have stopped
 // waiting before a slow test released the fetch, so that attempt is
-// repeated. A 401 sooner can only come from a stopped key worker.
+// repeated. A 401 sooner can only come from a stopped key worker, and any
+// other failure has no timing excuse either.
 func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -534,15 +535,17 @@ func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	const attempts = 3
 	for i := 1; ; i++ {
 		a := keyLoopShutdownAttempt(t, key)
+		waitExpired := a.err == nil && a.status == http.StatusUnauthorized &&
+			a.relayError == "invalid_token" && a.took >= fit.FITKeyWait
 		switch {
 		case a.err == nil && a.status == http.StatusOK:
 			return
-		case a.took < fit.FITKeyWait:
-			t.Fatalf("in-flight request = %d %q, %v after %v; want 200: the key worker stopped before the request finished", a.status, a.relayError, a.err, a.took)
+		case !waitExpired || t.Failed():
+			t.Fatalf("in-flight request = %d %q, %v after %v; want 200: a 401 sooner than FITKeyWait means the key worker stopped before the request finished", a.status, a.relayError, a.err, a.took)
 		case i == attempts:
-			t.Fatalf("in-flight request = %d %q, %v; all %d attempts took at least FITKeyWait (%v), so none tested the order", a.status, a.relayError, a.err, attempts, fit.FITKeyWait)
+			t.Fatalf("all %d attempts answered 401 after at least FITKeyWait (%v), so none tested the order", attempts, fit.FITKeyWait)
 		}
-		t.Logf("attempt %d proves nothing: the answer took %v, at least FITKeyWait", i, a.took)
+		t.Logf("attempt %d proves nothing: 401 after %v, at least FITKeyWait", i, a.took)
 	}
 }
 

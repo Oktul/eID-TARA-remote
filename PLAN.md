@@ -1260,12 +1260,12 @@ has a case that fails without it:
   branch" issue also when none of a line's release tags is on its branch,
   instead of a notice, as §12 requires. The new `go-patch-test.sh` runs
   prepare against a local origin with a stub `gh`.
-- Flaky test: `TestServeKeyLoopStopsAfterInFlightRequests` repeats an
-  attempt whose answer took at least `FITKeyWait`, since the relay may then
-  rightly have stopped waiting, up to three times; a 401 sooner still fails
-  at once. A key worker stopped at the signal fails it within milliseconds.
-  600 `-race` runs in the pinned builder pass; of 300 checked, 5 needed a
-  second attempt.
+- Flaky test: `TestServeKeyLoopStopsAfterInFlightRequests` repeats, up to
+  three times, an attempt answered 401 `invalid_token` after at least
+  `FITKeyWait`, since the relay may then rightly have stopped waiting; any
+  other failure, and a 401 sooner, fails at once. A key worker stopped at
+  the signal fails it within milliseconds. 900 `-race` runs in the pinned
+  builder pass; of 600 checked, 8 needed a second attempt.
 
 Still open: Codex's review of these fixes (round 2), then Claude's round 3.
 
