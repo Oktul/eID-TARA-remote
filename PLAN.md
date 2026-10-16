@@ -1112,6 +1112,11 @@ as separate commits, alongside the Phase 2 review.
   diagnostics; explicit JSON request and lifecycle logs remain. HTTP
   regression fixtures cover both commands. All five required Go checks
   pass, including Linux race tests; no vulnerabilities are reported.
+- Carried the Phase 1 early-response fix (§4.3, §6): local answers close
+  connections with unread bodies before net/http can drain past the write
+  deadline. Declared/chunked fixtures also verify keep-alive after a full
+  forwarded-body read. All five required Go checks pass, including Linux
+  race tests; no vulnerabilities are reported.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and Codex's review. Phase 2 also needs its release verifications

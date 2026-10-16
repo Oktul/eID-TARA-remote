@@ -145,6 +145,103 @@ func TestDeclaredOversizedBodyAnsweredAtOnce(t *testing.T) {
 	}
 }
 
+// Early answers refuse the body before step 4. They must flush without
+// waiting for net/http to drain it, just like a 413 (PLAN.md §4.3, §6).
+func TestEarlyAnswersDoNotWaitForBody(t *testing.T) {
+	const responseWait = time.Second
+	for _, c := range []struct {
+		name, method, target, code string
+		status                     int
+		authenticated, notReady    bool
+	}{
+		{"invalid_token", "POST", "/oidc/token", "invalid_token", 401, false, false},
+		{"route_not_allowed", "POST", "/other", "route_not_allowed", 404, true, false},
+		{"not_ready", "POST", "/oidc/token", "not_ready", 503, false, true},
+		{"live", "GET", "/livez", "", 200, false, false},
+		{"ready", "GET", "/readyz", "", 200, false, false},
+		{"unready", "GET", "/readyz", "not_ready", 503, false, true},
+		{"info", "GET", "/relay/v1/info", "", 200, true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			opts := relayOptions{run: true, notReady: c.notReady,
+				env: map[string]string{"RELAY_UPSTREAM_TIMEOUT": "100ms"}}
+			if c.notReady {
+				opts.jwks = jwksUnavailable
+			}
+			r := newRelay(t, opts)
+			for _, framing := range []string{"Content-Length: 2", "Transfer-Encoding: chunked"} {
+				t.Run(framing, func(t *testing.T) {
+					conn, err := net.Dial("tcp", r.addr)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer func() { _ = conn.Close() }() // intentionally leave the body unsent
+					if err := conn.SetDeadline(time.Now().Add(responseWait)); err != nil {
+						t.Fatal(err)
+					}
+					auth := ""
+					if c.authenticated {
+						auth = "Authorization: Bearer " + validFIT(t) + "\r\n"
+					}
+					if _, err := fmt.Fprintf(conn, "%s %s HTTP/1.1\r\nHost: relay.example\r\n%s%s\r\n\r\n",
+						c.method, c.target, auth, framing); err != nil {
+						t.Fatal(err)
+					}
+					resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+					if err != nil {
+						t.Fatalf("no answer before the refused body: %v", err)
+					}
+					defer func() { _ = resp.Body.Close() }() // the response read below decides
+					if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+						t.Fatal(err)
+					}
+					if resp.StatusCode != c.status || resp.Header.Get("Relay-Error") != c.code ||
+						resp.Header.Get("Relay-Protocol") != "1" {
+						t.Errorf("got %d %v, want %d %q and Relay-Protocol 1", resp.StatusCode, resp.Header, c.status, c.code)
+					}
+					if !resp.Close {
+						t.Error("answer to an unread body does not announce Connection: close")
+					}
+				})
+			}
+		})
+	}
+}
+
+// A fully read body must still allow reuse after early-refusal protection
+// is removed (PLAN.md §6). Both exchanges use the same TCP connection.
+func TestReadBodyKeepsConnectionReusable(t *testing.T) {
+	r := newRelay(t, relayOptions{run: true})
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }() // both requests finish before closing
+	if err := conn.SetDeadline(time.Now().Add(waitTimeout)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	fit := validFIT(t)
+	for range 2 {
+		if _, err := fmt.Fprintf(conn, "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\n"+
+			"Authorization: Bearer %s\r\nContent-Length: 2\r\n\r\n{}", fit); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.ReadResponse(reader, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close() // the full read above decides
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != 200 || resp.Header.Get("Relay-Upstream-Status") != "200" || resp.Close {
+			t.Fatalf("got %d %v close=%t, want reusable upstream answer", resp.StatusCode, resp.Header, resp.Close)
+		}
+	}
+}
+
 // TestInfoListsRoutesAsConfigured proves that /relay/v1/info shows each
 // route byte for byte as configured (PLAN.md §4.1). "&" is a valid path
 // character (§5) that json.Marshal would rewrite as an escape.

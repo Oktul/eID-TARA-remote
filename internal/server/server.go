@@ -183,6 +183,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
+	// An early answer refuses the body. Without close, net/http drains it
+	// before flushing; a slow body can outlast the write deadline and lose
+	// that answer (PLAN.md §4.3, §6). Restore keep-alive only after a full read.
+	if r.ContentLength != 0 {
+		w.Header().Set("Connection", "close")
+	}
 	// Health checks: exact method and raw target, no query, before the
 	// semaphore and FIT verification (PLAN.md §4.2). They contact nothing.
 	if r.Method == http.MethodGet && (r.RequestURI == pathLive || r.RequestURI == pathReady) {
@@ -275,6 +281,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 		s.abort(w, rec)
 		return
 	}
+	w.Header().Del("Connection")
 
 	// Step 5: forward (PLAN.md §5).
 	resp, err := s.fwd.Forward(r.Context(), route, r.Header, body)
