@@ -220,7 +220,7 @@ hostile input.
 | `iss`                | Exactly `forge/invocation-token`.                                                                                                |
 | `aud`                | Exactly the `RELAY_APP_ID` string, or a non-empty array of non-empty strings that contains that exact value (A-3).              |
 | `exp`, `nbf`         | Required NumericDate JSON numbers (below).                                                                                       |
-| `app.environment.id` | Equal to `RELAY_ENVIRONMENT_ID` (D5).                                                                                            |
+| `app.environment.id` | Equal to `RELAY_ENVIRONMENT_ID` (D5): the environment's ARI, `ari:cloud:ecosystem::environment/<app>/<environment>`.             |
 | `context.cloudId`    | The site pin (section 5.4).                                                                                                      |
 | `app.installationId` | In `RELAY_INSTALLATION_IDS`, only if that is set (an optional extra pin). A malformed value is refused when supplied.             |
 | `icLabel`            | A token with `icLabel` (Isolated Cloud) is refused: its keys live at another JWKS URL, and Isolated Cloud is not supported.      |
@@ -422,7 +422,7 @@ only the credential.
 | Setting                                     | Required | Default                             | Purpose                                                                 |
 | ------------------------------------------- | -------- | ----------------------------------- | ----------------------------------------------------------------------- |
 | `RELAY_APP_ID`                              | yes      |                                     | Expected FIT audience                                                   |
-| `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id` (D5)                                      |
+| `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                 |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                 |
 | `RELAY_UPSTREAM_URL`                        | yes      |                                     | Provider origin with an optional base path, HTTPS only                  |
 | `RELAY_ROUTES`                              | yes      |                                     | Allowed `METHOD /path` pairs, comma-separated, e.g. `POST /oidc/token`  |

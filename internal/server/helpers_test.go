@@ -39,7 +39,7 @@ import (
 // installation (CONTRIBUTING.md, Tests).
 const (
 	testAppID     = "ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001"
-	testEnvID     = "00000000-0000-4000-8000-000000000002"
+	testEnvID     = "ari:cloud:ecosystem::environment/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002"
 	testInstallID = "ari:cloud:ecosystem::installation/00000000-0000-4000-8000-000000000003"
 	testSiteA     = "00000000-0000-4000-8000-00000000000a" // allowed
 	testSiteB     = "00000000-0000-4000-8000-00000000000b" // allowed

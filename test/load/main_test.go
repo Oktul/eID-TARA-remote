@@ -122,7 +122,7 @@ func TestMintedFITPassesEveryRelayCheck(t *testing.T) {
 	want := []struct{ name, got, want string }{
 		{"iss", claims.Iss, "forge/invocation-token"},
 		{"aud", claims.Aud, "ari:cloud:ecosystem::app/11111111-1111-4111-8111-111111111111"},
-		{"app.environment.id", claims.App.Environment.ID, "22222222-2222-4222-8222-222222222222"},
+		{"app.environment.id", claims.App.Environment.ID, "ari:cloud:ecosystem::environment/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222"},
 		{"context.cloudId", claims.Context.CloudID, "33333333-3333-4333-8333-333333333333"},
 	}
 	for _, w := range want {
@@ -898,7 +898,7 @@ func TestPrintSettingsNamesEveryRequiredSetting(t *testing.T) {
 	printSettings(&b, "https://127.0.0.1:9443", "/tmp/load-ca.pem")
 	for _, line := range []string{
 		"RELAY_APP_ID=ari:cloud:ecosystem::app/11111111-1111-4111-8111-111111111111\n",
-		"RELAY_ENVIRONMENT_ID=22222222-2222-4222-8222-222222222222\n",
+		"RELAY_ENVIRONMENT_ID=ari:cloud:ecosystem::environment/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222\n",
 		"RELAY_CLOUD_IDS=33333333-3333-4333-8333-333333333333\n",
 		"RELAY_UPSTREAM_URL=https://127.0.0.1:9443\n",
 		"RELAY_ROUTES=POST /oidc/token\n",

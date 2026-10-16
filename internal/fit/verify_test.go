@@ -24,7 +24,7 @@ import (
 // installation (CONTRIBUTING.md, Tests).
 const (
 	synthAppID     = "ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001"
-	synthEnvID     = "00000000-0000-4000-8000-000000000002"
+	synthEnvID     = "ari:cloud:ecosystem::environment/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002"
 	synthInstallID = "ari:cloud:ecosystem::installation/00000000-0000-4000-8000-000000000003"
 	synthSiteA     = "00000000-0000-4000-8000-00000000000a" // allowed
 	synthSiteB     = "00000000-0000-4000-8000-00000000000b" // allowed

@@ -161,7 +161,10 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   `exp > nbf`, `now < exp + skew` and `now + skew >= nbf` (A-4).
   Missing, null, string or out-of-range dates fail closed. Atlassian's
   example token lives 25 s; the relay does not depend on that lifetime.
-- `app.environment.id` = `RELAY_ENVIRONMENT_ID` (D5).
+- `app.environment.id` = `RELAY_ENVIRONMENT_ID` (D5). Forge sends the
+  environment's ARI, `ari:cloud:ecosystem::environment/<app>/<environment>`,
+  not the bare environment UUID (Phase 0, 2026-10-16), so the setting holds
+  the ARI.
 - **Site pin (D5):** when `context.cloudId` is present, it must be a
   non-empty string in `RELAY_CLOUD_IDS`. A malformed, null or disallowed
   value is rejected; a fallback must never rescue a mismatch. If installation
@@ -531,7 +534,7 @@ empty (2026-10-16).
 | Setting                                     | Required | Default                             | Purpose                                                                |
 | ------------------------------------------- | -------- | ----------------------------------- | ---------------------------------------------------------------------- |
 | `RELAY_APP_ID`                              | yes      |                                     | Expected FIT audience                                                  |
-| `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id` (D5)                                     |
+| `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                |
 | `RELAY_UPSTREAM_URL`                        | yes      |                                     | Provider origin with an optional base path, HTTPS only                 |
 | `RELAY_ROUTES`                              | yes      |                                     | Allowed `METHOD /path` pairs, comma-separated, e.g. `POST /oidc/token` |

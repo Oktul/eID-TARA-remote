@@ -42,14 +42,15 @@ and 5). It looks like this (synthetic values):
 
 ```sh
 RELAY_APP_ID=ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001
-RELAY_ENVIRONMENT_ID=00000000-0000-4000-8000-000000000002
+RELAY_ENVIRONMENT_ID=ari:cloud:ecosystem::environment/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002
 RELAY_CLOUD_IDS=00000000-0000-4000-8000-000000000003
 RELAY_UPSTREAM_URL=https://provider.example
 RELAY_ROUTES=POST /oidc/token
 ```
 
 - `RELAY_CLOUD_IDS` pins the relay to your site, and `RELAY_ENVIRONMENT_ID` to
-  the app's Forge environment. They stop another site's administrator from
+  the app's Forge environment. The environment is the whole
+  `ari:cloud:ecosystem::environment/…` value, not only its last part. They stop another site's administrator from
   pointing their installation at your relay and using your IP and credential.
   If several of your own sites share one relay, list each site's ID,
   comma-separated. Never add a site you do not control.

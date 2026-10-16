@@ -30,7 +30,7 @@ import (
 // Synthetic identifiers; none belongs to a real app, environment or site.
 const (
 	appID   = "ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001"
-	envID   = "00000000-0000-4000-8000-000000000002"
+	envID   = "ari:cloud:ecosystem::environment/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002"
 	cloudID = "00000000-0000-4000-8000-000000000003"
 	// marker is planted in rejected values, file contents and file names.
 	// It must never appear in an error (PLAN.md §8, §13 Config).
