@@ -194,8 +194,9 @@ relay. The optional Caddy service (`deploy/Caddyfile`) runs only with the
 4. Create `secrets/upstream_auth` (section 3.1), and for TARA the CA file
    (section 3.2). For Authentigate, follow section 3.3 instead.
 5. Start it:
-   - **With Caddy in front:** edit `Caddyfile` (section 6.4), then run
-     `docker compose --profile caddy up -d`.
+   - **With Caddy in front:** edit `Caddyfile` (section 6.4) and configure
+     the required inbound connection limit at your firewall or load balancer
+     (section 6.3, item 3), then run `docker compose --profile caddy up -d`.
    - **Behind your own proxy:** run `docker compose up -d`. Attach the proxy
      container to the compose network `eid-forge-remote_default` and send to
      `relay:8080`, or, for a proxy running on the host itself, uncomment the
@@ -384,8 +385,10 @@ You change two things:
    through Docker's userland proxy, such as IPv6 to an IPv4-only network,
    arrive from the network's gateway, and the filter refuses them.
 
-This configuration does not cap all inbound client connections (section 6.3,
-item 3); add that cap in front of Caddy if you need it.
+Before production use, cap all inbound client connections at the firewall
+or load balancer in front of Caddy (section 6.3, item 3), including clients
+still sending headers and idle keep-alives. `max_conns_per_host` limits only
+connections from Caddy to the relay; it does not provide this inbound cap.
 
 ### 6.5 Kubernetes ingress controller
 

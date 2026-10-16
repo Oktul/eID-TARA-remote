@@ -3,9 +3,10 @@
 _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
 Phase 0 (D10), and checked locally (§16). Not merged, tagged or published;
 no workflow has run, since the repository has no remote yet. Still open: the
-Phase 0 gates (§14), source CI on GitHub, the Phase 2 release verifications
-and Codex's review (`AGENTS.md`). Adding `remotes` to the Forge app still
-needs the owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
+Phase 0 gates (§14), source CI on GitHub, the Phase 2 release verifications,
+one open Codex release-date finding and Claude's final review (`AGENTS.md`,
+§16). Adding `remotes` to the Forge app still needs the owner's approval
+(Oktul eID SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -397,8 +398,11 @@ request header has been read, so a slow body or an unknown-key wait would
 use up time the answer needs, and a token exchange could succeed upstream
 while its answer is dropped (R-8). The relay therefore restarts the write
 deadline, upstream timeout + 5 s, once the body has been read or refused,
-so a 413 gets the same budget (2026-10-16). A 413 also closes the
-connection (`Connection: close`) instead of reading the refused body to keep
+so a 413 gets the same budget (2026-10-16). Any local answer before the body
+is read closes the connection when a body is declared or chunked, so
+net/http cannot wait to drain that refused body before flushing the answer
+(2026-10-16). Successful full reads preserve connection reuse. A 413 also
+closes the connection (`Connection: close`) instead of reading the refused body to keep
 the connection; when the limit is hit while reading, net/http half-closes
 and waits briefly first, so a client still sending reads the 413 rather
 than a reset.
@@ -1102,6 +1106,11 @@ were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows
 branch predates the Phase 1 review fixes; they are checked and carried here
 as separate commits, alongside the Phase 2 review.
 
+- Made the documented inbound connection cap a prerequisite of production
+  Caddy deployments (§6). Its backend connection cap does not bound
+  frontend clients; both the quick start and proxy guide now require the
+  firewall/load-balancer cap already specified by the plan. All five
+  required Go checks pass after this documentation change.
 - Fixed the load generator's false acceptance when `full` never reaches
   the concurrency cap (§13). It now fails with a request to increase the
   worker count or upstream delay. The regression failed before the fix;
@@ -1136,9 +1145,52 @@ as separate commits, alongside the Phase 2 review.
   All five required Go checks pass, including Linux race tests; no
   vulnerabilities are reported.
 
+**Open finding, owner decision required (2026-10-16).** Support expiry in
+`.github/scripts/lines.sh` uses `creatordate` of `vN.0.0`. For an annotated
+tag it is the tagger date; for a lightweight tag it is the commit date
+([Git's field definitions](https://git-scm.com/docs/git-for-each-ref#_field_names)).
+An isolated Git/jq reproduction created a lightweight `v2.0.0` today on a
+two-year-old commit: selection immediately dropped `1.0`, contrary to its
+12 months of support after the new major's release (§12). An annotated tag
+created today on the identical commit kept both majors. The contract does
+not require annotated tags or define another authoritative release-date
+source. This finding is reported rather than fixed under `AGENTS.md`:
+the owner must choose that source or a tag requirement before the support
+automation is accepted. No design decision or disagreement is recorded.
+
+Final local validation of the packaging review fixes (2026-10-16):
+
+- `gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
+  and `govulncheck ./...` pass; no vulnerabilities found. Race tests run in
+  the pinned Go 1.27.2 Linux builder. The local `go.mod` had retained CRLF
+  from its original creation; normalizing it to the existing LF attributes
+  also made the Linux-mounted module/builder pin check pass, with no Git
+  content change.
+  The complete shared `source-checks.sh all` run also passes in the Linux
+  builder, including the pinned analysis tools and the secret scan.
+- All ten supported-line fixtures and their shared source-check entry
+  point pass. actionlint v1.7.12 passes on all workflows. ShellCheck 0.10.0
+  exits 1 with four informational diagnostics in existing scripts:
+  SC2015 for an intentional compound guard, SC2153 twice for uppercase
+  variables supplied by workflows, and SC2016 for literal Markdown in a
+  single-quoted format string. Review found no defects in these cases; no
+  diagnostic suppressions were added.
+- Both image builds and the repository smoke script pass on linux/amd64
+  and linux/arm64, the latter under local emulation. Compose config passes
+  with and without Caddy; the pinned Caddy validates its configuration.
+  An initial Windows smoke invocation failed because disabling path
+  translation globally broke curl's `/dev/null`; limiting that adjustment
+  to Docker made both complete smoke runs pass.
+- The checksum-verified gitleaks 8.30.1 history scan passes, no leaks found.
+- Independent Codex agents reviewed the release, maintenance and deployment
+  changes and the review fixes; no additional confirmed findings remain.
+  Claude's commits were neither amended nor rebased. Seven focused review
+  fixes were added; the release-date finding above remains open. No merge,
+  push, repository tag or publication was performed.
+
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
-GitHub and Codex's review. Phase 2 also needs its release verifications
-(§14) on a GitHub repository.
+GitHub and Claude's final review. Phase 2 also needs the owner decision on
+release dates and its release verifications (§14) on a GitHub repository.
 
 Primary references consulted for the review on 2026-10-15:
 
