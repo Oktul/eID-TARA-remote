@@ -31,8 +31,8 @@ const (
 	algorithm = "RS256"
 
 	// maxDateDigits is the number of digits of MaxNumericDateSeconds: a date
-	// with more integer digits is out of range, and one with fewer cannot
-	// overflow an int64.
+	// with more integer digits is out of range, and 12 digits cannot overflow
+	// an int64.
 	maxDateDigits = 12
 
 	// nanoDigits is the number of fraction digits a time.Time can hold.
