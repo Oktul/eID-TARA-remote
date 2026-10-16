@@ -210,19 +210,6 @@ func TestVerifyAcceptsValidToken(t *testing.T) {
 	checkResult(t, got, err, "", validClaims)
 }
 
-func TestNewVerifierDefaults(t *testing.T) {
-	p := synthPolicy()
-	p.InstallationIDs = []string{synthInstallID}
-	v := NewVerifier(p, publishedKeys())
-	t.Run("policy_lists_copied", func(t *testing.T) {
-		p.CloudIDs[0] = synthSiteX
-		p.InstallationIDs[0] = "changed"
-		if v.policy.CloudIDs[0] != synthSiteA || v.policy.InstallationIDs[0] != synthInstallID {
-			t.Fatal("changing the caller's Policy changed the Verifier")
-		}
-	})
-}
-
 func TestVerifyAuthorizationField(t *testing.T) {
 	token := signRaw(t, signers().primary, validHeader, validPayload)
 	h, p, s := parts(t, token)

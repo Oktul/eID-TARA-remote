@@ -70,7 +70,7 @@ type Options struct {
 	// Credential is set on every upstream request; nil sets none, as for
 	// Authentigate, whose client assertion Forge signs (PLAN.md §5).
 	Credential *Credential
-	// RequestHeaders and ResponseHeaders are the allowlists from
+	// RequestHeaders and ResponseHeaders are the canonical allowlists from
 	// ParseRequestHeaders and ParseResponseHeaders.
 	RequestHeaders  []string
 	ResponseHeaders []string
@@ -121,7 +121,7 @@ func New(o Options) *Forwarder {
 		MaxResponseHeaderBytes: UpstreamMaxHeaderBytes,
 		Protocols:              protocols,
 	}
-	f := &Forwarder{
+	return &Forwarder{
 		client: &http.Client{
 			Transport: transport,
 			// A 3xx is an answer for Forge to read, wrapped like any other
@@ -131,27 +131,13 @@ func New(o Options) *Forwarder {
 		},
 		dialer:           dialer,
 		upstream:         o.Upstream,
-		routes:           slices.Clone(o.Routes),
-		requestHeaders:   canonical(o.RequestHeaders),
-		responseHeaders:  canonical(o.ResponseHeaders),
+		routes:           o.Routes,
+		credential:       o.Credential,
+		requestHeaders:   o.RequestHeaders,
+		responseHeaders:  o.ResponseHeaders,
 		timeout:          o.Timeout,
 		maxResponseBytes: o.MaxResponseBytes,
 	}
-	if o.Credential != nil {
-		c := *o.Credential
-		f.credential = &c
-	}
-	return f
-}
-
-// canonical copies names in canonical form, so the runtime exclusions below
-// hold even for an allowlist that did not come from the Parse functions.
-func canonical(names []string) []string {
-	out := make([]string, len(names))
-	for i, n := range names {
-		out[i] = textproto.CanonicalMIMEHeaderKey(n)
-	}
-	return out
 }
 
 // Match returns the route whose method and path equal method and target

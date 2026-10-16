@@ -1258,8 +1258,7 @@ func TestProxyInUse(t *testing.T) {
 // behaviour tests cannot tell apart from Go's defaults.
 func TestNewClientSettings(t *testing.T) {
 	pool := x509.NewCertPool()
-	o := Options{Routes: []Route{tokenRoute}, RequestHeaders: []string{"accept"}, RootCAs: pool}
-	f := New(o)
+	f := New(Options{Routes: []Route{tokenRoute}, RootCAs: pool})
 	tr, ok := f.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport is %T", f.client.Transport)
@@ -1279,7 +1278,6 @@ func TestNewClientSettings(t *testing.T) {
 		{"tcp_keepalive_30s", f.dialer.KeepAlive == 30*time.Second},
 		{"proxy_from_environment", tr.Proxy != nil},
 		{"redirects_not_followed", f.client.CheckRedirect(nil, nil) == http.ErrUseLastResponse},
-		{"allowlist_canonical", slices.Equal(f.requestHeaders, []string{"Accept"})},
 	}
 	for _, c := range checks {
 		if !c.ok {
@@ -1293,9 +1291,5 @@ func TestNewClientSettings(t *testing.T) {
 	f.dialer.Control = func(string, string, syscall.RawConn) error { return errHook }
 	if _, err := tr.DialContext(t.Context(), "tcp", "127.0.0.1:1"); !errors.Is(err, errHook) {
 		t.Errorf("dials_with_checked_dialer: the transport dials with another dialer (%v)", err)
-	}
-	o.Routes[0] = Route{"GET", "/elsewhere"}
-	if f.routes[0] != tokenRoute {
-		t.Error("Forwarder shares its routes with the Options")
 	}
 }

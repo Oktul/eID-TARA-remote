@@ -139,14 +139,9 @@ func NewCache(jwksURL string, client *http.Client, refresh, maxAge time.Duration
 
 // newCache takes the fetcher as a function so tests can run the worker under
 // testing/synctest, with fake time and no network (PLAN.md §13).
+// refresh and maxAge are validated settings: 0 < refresh < max age
+// (PLAN.md §4.5).
 func newCache(fetch func(context.Context) ([]byte, error), refresh, maxAge time.Duration, logger *slog.Logger) *Cache {
-	if refresh <= 0 || maxAge <= refresh {
-		// Configuration enforces 0 < refresh < max age (PLAN.md §4.5).
-		// Anything else is a programming error that would make the worker
-		// fetch in a tight loop or let every snapshot expire before its
-		// refresh.
-		panic("fit: invalid JWKS refresh interval or maximum age")
-	}
 	return &Cache{
 		fetch:   fetch,
 		refresh: refresh,

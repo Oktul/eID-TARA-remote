@@ -48,8 +48,6 @@ type Verifier struct {
 // NewVerifier returns a Verifier for p that takes signing keys from keys,
 // normally the relay's *Cache.
 func NewVerifier(p Policy, keys keySource) *Verifier {
-	p.CloudIDs = slices.Clone(p.CloudIDs)
-	p.InstallationIDs = slices.Clone(p.InstallationIDs)
 	return &Verifier{policy: p, keys: keys, now: time.Now}
 }
 

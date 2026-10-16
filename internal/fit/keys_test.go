@@ -731,25 +731,3 @@ func TestCacheRunTwicePanics(t *testing.T) {
 		c.Run(ctx)
 	})
 }
-
-func TestNewCacheRejectsInvalidSchedule(t *testing.T) {
-	tests := []struct {
-		name            string
-		refresh, maxAge time.Duration
-	}{
-		{"refresh_zero", 0, time.Hour},
-		{"refresh_negative", -time.Second, time.Hour},
-		{"refresh_equals_max_age", time.Hour, time.Hour},
-		{"refresh_above_max_age", 2 * time.Hour, time.Hour},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if recover() == nil {
-					t.Fatal("NewCache accepted the schedule")
-				}
-			}()
-			NewCache("https://jwks.invalid/", JWKSClient(), tt.refresh, tt.maxAge, discardLogger())
-		})
-	}
-}
