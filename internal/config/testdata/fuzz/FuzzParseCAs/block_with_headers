@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("-----BEGIN CERTIFICATE-----\nProc-Type: 4,ENCRYPTED\n\nAAAA\n-----END CERTIFICATE-----\n")

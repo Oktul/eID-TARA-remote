@@ -451,10 +451,36 @@ before they are supported for production.
 Environment variables, read and checked once at startup. Any setting can
 instead be read from a file named by `<NAME>_FILE`, for the secret mechanisms
 of Docker, Kubernetes and others. A `RELAY_*` variable the relay does not know
-logs a startup warning, which catches typos.
+logs a startup warning, which catches typos. The warning names the variable
+only if the name looks like a setting name (`RELAY_` followed by `A-Z`, `0-9`
+and `_`, at most 64 bytes); any other is logged once as
+`RELAY_* (malformed name)`, because a `:` typed for `=` would put the value,
+perhaps the credential, into the name (2026-10-15).
 If both a setting and its `_FILE` variant are provided, startup fails with
 the setting name only. File reads are bounded and configuration errors never
 echo values. Header allowlists cannot override the exclusions in §5.
+
+**Validation rules (2026-10-15).** A `_FILE` value loses one trailing line
+ending (`\n` or `\r\n`), since secret files usually end with one. A setting
+that is present but empty is an error, never the default. List items are
+separated by commas; spaces and tabs around an item are ignored, and empty or
+duplicate items are errors. `RELAY_APP_ID` is `ari:cloud:ecosystem::app/`
+followed by a lowercase UUID; other IDs are 1–256 printable ASCII characters
+other than space and comma. Durations use Go syntax (`10s`, `6h`) and must
+be positive, except that `RELAY_CLOCK_SKEW` may be `0`; it is at most
+1 minute (owner, 2026-10-16), since FITs live about 25 s and a larger skew
+would in effect switch `exp` and `nbf` off. Sizes and counts are positive
+decimal integers. `RELAY_LOG_LEVEL` is matched exactly.
+`RELAY_PORT` and a port in `RELAY_UPSTREAM_URL` or `RELAY_JWKS_URL` are
+1–65535. Both URLs start with the literal `https://`, and `RELAY_JWKS_URL`,
+like the upstream URL, has a host and no userinfo, query or fragment, since
+the startup summary prints it. `RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
+of PEM `CERTIFICATE` blocks with only whitespace before, between and after
+them; `_FILE` values are read up to 64 KiB. `RELAY_TLS_CERT_FILE` and
+`RELAY_TLS_KEY_FILE` are set together or not at all, each read up to 1 MiB,
+and must hold a PEM certificate chain and its matching private key. The
+`RELAY_UPSTREAM_AUTH` value loses spaces and tabs around it and must not be
+empty (2026-10-16).
 
 | Setting                                     | Required | Default                             | Purpose                                                                |
 | ------------------------------------------- | -------- | ----------------------------------- | ---------------------------------------------------------------------- |
@@ -861,6 +887,16 @@ promotes unreleased work from `main` into a patch release.
 5. A customer with no host or static IP cannot use TARA live or
    Authentigate in v1 (D1). Revisit if customers ask for it.
 6. The publication date, and the GitHub owner for the image name.
+7. Decided (owner, 2026-10-16, on the recommendation to keep it simple and
+   secure): `RELAY_JWKS_MAX_AGE` is measured on the monotonic clock, not
+   wall-clock time. A removed key is trusted until the next successful
+   refresh: within one refresh interval of running time when the JWKS is
+   reachable, and at most `RELAY_JWKS_MAX_AGE` of running time during an
+   outage. Suspended time does not count, which only matters when the JWKS
+   is also unreachable after a resume; a wall clock would add a way to fail
+   instead, since an NTP step could expire good keys (§4.5).
+8. Decided (owner, 2026-10-16, same recommendation): `RELAY_CLOCK_SKEW` is
+   at most 1 minute; a clock further off must be fixed, not tolerated (§8).
 
 ## 16. Review evidence and implementation gates (2026-10-15)
 
