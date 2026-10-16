@@ -1,11 +1,11 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-16: Phase 1 implemented on a review branch, ahead of Phase 0
-(D10), and checked locally (§16). Not merged, tagged or published; no
-workflow has run, since the repository has no remote yet. Still open: the
-Phase 0 gates (§14), source CI on GitHub and Codex's review (`AGENTS.md`).
-Adding `remotes` to the Forge app still needs the owner's approval (Oktul eID
-SSO, `PLAN.md` §4.7)._
+_Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
+Phase 0 (D10), and checked locally (§16). Not merged, tagged or published;
+no workflow has run, since the repository has no remote yet. Still open: the
+Phase 0 gates (§14), source CI on GitHub, the Phase 2 release verifications
+and Codex's review (`AGENTS.md`). Adding `remotes` to the Forge app still
+needs the owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -623,8 +623,10 @@ internal/server/      HTTP server, middleware (request ID, recover, limiter, log
 test/load/            small load generator for the acceptance runs (no dependencies)
 deploy/               compose.yaml, Caddyfile, kubernetes/
 docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
-.github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml
-Dockerfile, go.mod, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
+.github/workflows/    ci.yml, release.yml, weekly.yml, go-patch.yml, go-patch-line.yml (go-patch's per-line jobs)
+.github/scripts/      the workflows' shell steps; main's copy runs against every release line
+.github/dependabot.yml
+Dockerfile, .dockerignore, go.mod, README.md, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
 ```
 
 The module path is `eid-forge-remote` until the GitHub owner is chosen
@@ -1072,10 +1074,11 @@ Document consistency and whitespace checks apply to this planning revision;
 the Go checks remain mandatory once the Phase 0/1 source and tools exist.
 
 **Implementation record (2026-10-16, D10).** Phase 1 is on
-`claude/phase-1-relay-core`. Claude agents wrote it; other Claude agents
-reviewed it in three rounds before Codex's round (`AGENTS.md`), the third
-only of the second's fixes, each finding checked by a skeptic. Results on
-the final tree, on Windows with Go 1.27.2:
+`claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`,
+stacked on it. Claude agents wrote them; other Claude agents reviewed them in
+three rounds before Codex's round (`AGENTS.md`), the third only of the
+second's fixes, each finding checked by a skeptic: 87 confirmed findings
+were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows with Go 1.27.2:
 
 - `gofmt`, `go vet ./...`, `staticcheck ./...` (2026.2.2) and
   `govulncheck ./...` (v1.9.0, no vulnerabilities) pass.
@@ -1083,11 +1086,21 @@ the final tree, on Windows with Go 1.27.2:
   linux/amd64; the workstation has no C compiler for the race detector.
 - Every fuzz target ran for seconds to a minute; the hour-long run before
   v1.0.0 (§13) is still to do.
-- Not run: any GitHub workflow (the repository has no remote) and
-  `gitleaks` (not installed).
+- The image builds; `.github/scripts/smoke.sh` passes on linux/amd64;
+  linux/arm64 was cross-built only. `docker compose config` passes with and
+  without the Caddy profile. `caddy validate` and `caddy fmt` pass on
+  `deploy/Caddyfile` with the pinned Caddy 2.11.7, also with the S-9 IP
+  filter switched on, and the adapted configuration carries the §6 proxy
+  limits.
+- Not run: any GitHub workflow (the repository has no remote), `gitleaks`,
+  `shellcheck` and `actionlint` (not installed) and Kubernetes server-side
+  validation (no cluster).
+  The workflow scripts were exercised against local bare repositories with
+  the registry, go.dev and `gh` stubbed.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
-GitHub and Codex's review.
+GitHub and Codex's review. Phase 2 also needs its release verifications
+(§14) on a GitHub repository.
 
 Primary references consulted for the review on 2026-10-15:
 
