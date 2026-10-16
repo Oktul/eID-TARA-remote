@@ -3,11 +3,11 @@
 _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
 Phase 0 (D10), and checked locally (§16). Not merged, tagged or published;
 no workflow has run, since the repository has no remote yet. All three
-review rounds are done (`AGENTS.md`, §16). Still open: the Phase 0 gates
-(§14), source CI on GitHub, the Phase 2 release verifications and three open
-findings: Codex's release-date finding, a flaky test and a silent
-`go-patch.sh` skip (§16). Adding `remotes` to the Forge app still needs the
-owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
+review rounds are done; the fixes for their three remaining findings await
+Codex's review (`AGENTS.md`, §16). Still open: the Phase 0 gates (§14),
+source CI on GitHub and the Phase 2 release verifications. Adding `remotes`
+to the Forge app still needs the owner's approval (Oktul eID SSO, `PLAN.md`
+§4.7)._
 
 ## 1. What it is
 
@@ -1257,11 +1257,18 @@ has a case that fails without it:
   branch" issue also when none of a line's release tags is on its branch,
   instead of a notice, as §12 requires. The new `go-patch-test.sh` runs
   prepare against a local origin with a stub `gh`.
+- Flaky test: `TestServeKeyLoopStopsAfterInFlightRequests` repeats an
+  attempt whose answer took at least `FITKeyWait`, since the relay may then
+  rightly have stopped waiting, up to three times; a 401 sooner still fails
+  at once. A key worker stopped at the signal fails it within milliseconds.
+  600 `-race` runs in the pinned builder pass; of 300 checked, 5 needed a
+  second attempt.
+
+Still open: Codex's review of these fixes (round 2), then Claude's round 3.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
-GitHub and the flaky test above. Phase 2 also needs the release-date
-decision, the `go-patch.sh` fix and its release verifications (§14) on a
-GitHub repository.
+GitHub and the review of the fixes above. Phase 2 also needs its release
+verifications (§14) on a GitHub repository.
 
 Primary references consulted for the review on 2026-10-15:
 

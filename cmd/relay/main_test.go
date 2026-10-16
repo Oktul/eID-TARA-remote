@@ -521,11 +521,45 @@ func (r *relay) waitRefused(t *testing.T) {
 // (§4.5). That fetch is in flight when the signal arrives and is answered
 // only once the listener is closed, so the request is served only if the key
 // worker outlives the listener; otherwise it gets 401 invalid_token.
+//
+// The request waits for the fetch at most fit.FITKeyWait. An answer that
+// took that long proves nothing, because the relay may rightly have stopped
+// waiting before a slow test released the fetch, so that attempt is
+// repeated. A 401 sooner can only come from a stopped key worker.
 func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
+	const attempts = 3
+	for i := 1; ; i++ {
+		a := keyLoopShutdownAttempt(t, key)
+		switch {
+		case a.err == nil && a.status == http.StatusOK:
+			return
+		case a.took < fit.FITKeyWait:
+			t.Fatalf("in-flight request = %d %q, %v after %v; want 200: the key worker stopped before the request finished", a.status, a.relayError, a.err, a.took)
+		case i == attempts:
+			t.Fatalf("in-flight request = %d %q, %v; all %d attempts took at least FITKeyWait (%v), so none tested the order", a.status, a.relayError, a.err, attempts, fit.FITKeyWait)
+		}
+		t.Logf("attempt %d proves nothing: the answer took %v, at least FITKeyWait", i, a.took)
+	}
+}
+
+// keyLoopAnswer is the in-flight request's answer in
+// TestServeKeyLoopStopsAfterInFlightRequests, and how long it took.
+type keyLoopAnswer struct {
+	status     int
+	relayError string
+	err        error
+	took       time.Duration
+}
+
+// keyLoopShutdownAttempt runs one attempt of
+// TestServeKeyLoopStopsAfterInFlightRequests with a new relay and JWKS
+// server, and returns the in-flight request's answer.
+func keyLoopShutdownAttempt(t *testing.T, key *rsa.PrivateKey) keyLoopAnswer {
+	t.Helper()
 	// The startup fetch publishes the key under the old ID and every later
 	// fetch under the new one, which the FIT names. The second fetch is held
 	// until the test releases it.
@@ -557,31 +591,30 @@ func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	r := startRelay(t, with(validEnv(), "RELAY_JWKS_URL", jwks.URL+"/jwks.json"), jwks.Client())
 	r.waitFor(t, "signing keys ready")
 
-	type answer struct {
-		status     int
-		relayError string
-		err        error
-	}
 	token := signFIT(t, key, newKID)
-	answered := make(chan answer, 1)
+	answered := make(chan keyLoopAnswer, 1)
 	go func() {
 		req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(r.port)+"/relay/v1/info", nil)
 		if err != nil {
-			answered <- answer{err: err}
+			answered <- keyLoopAnswer{err: err}
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		// A zero Transport uses no proxy.
 		client := &http.Client{Transport: &http.Transport{}, Timeout: waitLimit}
 		defer client.CloseIdleConnections()
+		// The relay's wait starts after the request is sent, so this
+		// duration is never shorter than that wait.
+		start := time.Now()
 		resp, err := client.Do(req)
+		took := time.Since(start)
 		if err != nil {
-			answered <- answer{err: err}
+			answered <- keyLoopAnswer{err: err, took: took}
 			return
 		}
 		_, _ = io.Copy(io.Discard, resp.Body) // only the status and Relay-Error are checked
 		_ = resp.Body.Close()
-		answered <- answer{status: resp.StatusCode, relayError: resp.Header.Get("Relay-Error")}
+		answered <- keyLoopAnswer{status: resp.StatusCode, relayError: resp.Header.Get("Relay-Error"), took: took}
 	}()
 
 	select {
@@ -593,11 +626,9 @@ func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	r.waitRefused(t)
 	releaseOnce()
 
+	var a keyLoopAnswer
 	select {
-	case a := <-answered:
-		if a.err != nil || a.status != http.StatusOK {
-			t.Errorf("in-flight request = %d %q, %v; want 200: the key worker stopped before the request finished", a.status, a.relayError, a.err)
-		}
+	case a = <-answered:
 	case <-time.After(waitLimit):
 		t.Fatalf("no answer within %v; log:\n%s", waitLimit, r.log)
 	}
@@ -607,6 +638,7 @@ func TestServeKeyLoopStopsAfterInFlightRequests(t *testing.T) {
 	if n := fetches.Load(); n != 2 {
 		t.Errorf("%d JWKS fetches, want 2: one at startup, one for the unknown key ID", n)
 	}
+	return a
 }
 
 // probeServer stands in for the relay's health endpoints on 127.0.0.1. It
