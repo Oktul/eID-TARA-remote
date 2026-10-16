@@ -215,6 +215,11 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 	// Closing an unread body drops the connection instead of draining it.
 	defer func() { _ = resp.Body.Close() }() // the answer is decided; a close error changes nothing
 
+	// Disabling HTTP/2 controls negotiation, but Go's HTTP/1 parser still
+	// accepts other version numbers. PLAN.md §4.3 and §5 require HTTP/1.1.
+	if resp.ProtoMajor != 1 || resp.ProtoMinor != 1 {
+		return nil, ErrUnreachable
+	}
 	// Go reads past 100 and 102-199 itself, but returns 101 and 000-099 as
 	// final. A 101 the relay never asked for, or a status under 100, is not a
 	// valid answer. A 101 with Upgrade headers also hands over the raw

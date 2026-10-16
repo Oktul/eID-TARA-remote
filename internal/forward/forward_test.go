@@ -793,6 +793,28 @@ func TestForwardUnreachable(t *testing.T) {
 	})
 }
 
+// Go's HTTP/1 parser also accepts other version numbers. The relay still
+// requires an HTTP/1.1 answer before wrapping it (PLAN.md §4.3, §5).
+func TestForwardResponseVersion(t *testing.T) {
+	for _, proto := range []string{"HTTP/1.0", "HTTP/1.1", "HTTP/1.2", "HTTP/2.0"} {
+		t.Run(proto, func(t *testing.T) {
+			base, _ := rawUpstream(t, answerRaw(proto+" 200 OK\r\nContent-Length: 2\r\n\r\n{}"))
+			f := newForwarder(t, base, nil)
+			resp, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+			if proto != "HTTP/1.1" {
+				wantErr(t, err, ErrUnreachable)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Status != http.StatusOK || string(resp.Body) != "{}" {
+				t.Errorf("got status %d body %q, want 200 and {}", resp.Status, resp.Body)
+			}
+		})
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

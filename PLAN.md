@@ -1098,6 +1098,16 @@ were fixed (52, 25 and 10) and 12 refuted. Results on the final tree, on Windows
   The workflow scripts were exercised against local bare repositories with
   the registry, go.dev and `gh` stubbed.
 
+**Codex review, round 2, packaging branch (2026-10-16).** The packaging
+branch predates the Phase 1 review fixes; they are checked and carried here
+as separate commits, alongside the Phase 2 review.
+
+- Carried the HTTP/1.1-only upstream response check from the Phase 1 review
+  (§4.3, §5). Raw TLS fixtures cover HTTP/1.0, HTTP/1.2 and HTTP/2.0
+  rejection and a successful HTTP/1.1 answer.
+  All five required Go checks pass on this branch, including the Linux
+  race tests; `govulncheck` reports no vulnerabilities.
+
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and Codex's review. Phase 2 also needs its release verifications
 (§14) on a GitHub repository.
