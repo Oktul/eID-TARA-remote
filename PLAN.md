@@ -1,13 +1,14 @@
 # eID Forge Remote — Plan
 
 _Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
-Phase 0 (D10), and checked locally (§16). Not merged, tagged or published;
-no workflow has run, since the repository has no remote yet. All three
-review rounds are done; the fixes for their three remaining findings await
-Codex's review (`AGENTS.md`, §16). Still open: the Phase 0 gates (§14),
-source CI on GitHub and the Phase 2 release verifications. Adding `remotes`
-to the Forge app still needs the owner's approval (Oktul eID SSO, `PLAN.md`
-§4.7)._
+Phase 0 (D10), and checked locally (§16). Phase 0 ran the same day: every
+gate passed except PINNED, which needs a site with data residency (§14).
+Not merged, tagged or published; no workflow has run, since the repository
+has no remote yet. All three review rounds are done; the fixes for their
+three remaining findings, and the Phase 0 fixes, await Codex's review
+(`AGENTS.md`, §16). Still open: the PINNED gate, source CI on GitHub and
+the Phase 2 release verifications. Adding `remotes` to the Forge app's main
+line still needs the owner's approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -1017,6 +1018,64 @@ promotes unreleased work from `main` into a patch release.
    A failed or unknown gate blocks progression. Record the result and required
    design correction here, rather than silently relaxing a pin or the protocol.
 
+   **Phase 0 results (2026-10-16).** Owner-approved spike on the Forge app's
+   `spike-relay-phase0` branch (development 6.0.0, a test site), with
+   this relay built from `claude/jwks-padding`, a synthetic HTTPS stub as
+   upstream, a claim inspector that prints only names, types and yes/no
+   checks, and a Cloudflare quick tunnel. No production credential or real
+   personal data was used; no FIT was stored.
+
+   - **Remote configured and called from `/cb`'s function: PASS, with two
+     platform findings.** `permissions.remote.set` from the admin page set
+     the remote; Atlassian showed a consent modal naming the URL, and
+     another on reset. `GET /relay-spike` in the `sso` web trigger, the
+     function `/cb` runs in, called it with backend `invokeRemote`.
+     (a) A customer-managed remote **without `baseUrl` could not be
+     deployed**: the server refused it with `UPSERT_ENVIRONMENT_REQUEST_INVALID`
+     ("Cannot read properties of undefined (reading 'address')"), also with
+     `supportedPatterns` or an `endpoint` module, although the remotes
+     reference makes `baseUrl` optional. The spike used the placeholder
+     `https://relay.invalid`, which makes adding the remote a major version.
+     (b) With the remote unset, a call goes to the placeholder and returns
+     `500` with an HTML page from Forge's egress proxy; nothing reaches a
+     relay. Reset restores that state.
+   - **Claims and pins: PASS.** Signature (RS256 from the live JWKS), `iss`
+     and `aud` (a string) verify. `context.cloudId` is present, a bare
+     UUID, and is the calling site; `app.installation.contexts` holds one
+     entry with the same `cloudId` plus `workspaceId`, `name` and
+     `apiBaseUrl`. `app.environment.id` is the **environment ARI**
+     (106 characters), not the UUID: a relay set up with the UUID refused
+     every call (`auth_reason environment`), so §4.4 and §8 now say ARI.
+     `app.installationId` is an installation ARI. No `icLabel`. The FIT
+     lives 25 s. A relay pinned to another cloud ID refused with
+     `cloud_id`, one pinned to another environment with `environment`;
+     both answered `401 invalid_token`. The installation-context fallback
+     is not needed and stays disabled. A call from a second real site was
+     not run; the pin compares the signed `context.cloudId` alone.
+   - **D7 wrapping: PASS.** Upstream `200`, `400`, `401` and `302` all reach
+     the function as `200` with `Relay-Upstream-Status`, `Relay-Protocol`,
+     `Relay-Version` and the body unchanged; `WWW-Authenticate` and
+     `Location` pass when allowed, and the `302` is not followed. Backend
+     `invokeRemote` **returns non-2xx answers instead of throwing**, with
+     status, headers and body: the relay's `401 invalid_token` and `404
+     route_not_allowed` arrive intact, unlike the bridge docs' behavior.
+     Infrastructure in between can answer too (Forge's proxy `500`, the
+     tunnel's `504`); those carry no `Relay-Protocol`, which is how the
+     Forge app must tell them apart.
+   - **Timeout: PASS.** There is no separate remote limit for this path: a
+     40 s upstream answered after 40.2 s. The bound is the web trigger's
+     budget, about 55 s left at the call; a 70 s upstream ended the trigger
+     after 56.6 s with Forge's `424 Failed Dependency`, and the function got
+     nothing. The relay's 10 s `RELAY_UPSTREAM_TIMEOUT` answered `504
+     upstream_timeout` at 10.0 s, 11 s end to end, well inside it. The
+     Cloudflare tunnel replaced that 504's body and headers with its own
+     error page, so a customer's proxy may rewrite relay 5xx answers.
+   - **PINNED: NOT RUN.** The test site has no data residency (its
+     admin page offers none), so the gate needs an EU-pinned site on a plan
+     with data residency. The customer-managed egress guide says
+     "customer-managed remotes are not eligible for data residency"; expect
+     a FAIL, and the owner's decision on whether relay customers accept it.
+
 1. **Relay core** (this repository): config, FIT and keys, forwarding,
    errors, health and logs, with failure-case tests and §4.6 contract fixtures.
    Add basic `ci.yml` immediately with formatting, vet, staticcheck, race
@@ -1039,12 +1098,14 @@ promotes unreleased work from `main` into a patch release.
 
 ## 15. Open questions
 
-1. Does a backend `invokeRemote` from a web trigger carry `context.cloudId`?
-   (Phase 0)
-2. Does `invokeRemote` give the function custom headers and non-2xx bodies?
-   (Phase 0; D7 needs the header.)
-3. Does a configurable compute-only remote keep the app PINNED? (Phase 0,
-   carried over from §4.7.)
+1. ~~Does a backend `invokeRemote` from a web trigger carry
+   `context.cloudId`?~~ Yes, the calling site's bare UUID (Phase 0,
+   2026-10-16, §14).
+2. ~~Does `invokeRemote` give the function custom headers and non-2xx
+   bodies?~~ Yes, both; non-2xx answers are returned, not thrown (§14).
+3. Does a configurable compute-only remote keep the app PINNED? Not yet
+   observed: needs a site with data residency; the egress guide says no
+   (§14).
 4. Authentigate: are only token calls IP-restricted, or JWKS too? May one
    relay IP serve several clients? (Forge app's checklist.) If JWKS is
    restricted, it becomes a second route (`GET /…/jwks`), with no relay
@@ -1062,6 +1123,9 @@ promotes unreleased work from `main` into a patch release.
    instead, since an NTP step could expire good keys (§4.5).
 8. Decided (owner, 2026-10-16, same recommendation): `RELAY_CLOCK_SKEW` is
    at most 1 minute; a clock further off must be fixed, not tolerated (§8).
+9. Can a customer-managed remote be deployed without `baseUrl`, as the
+   remotes reference says? Not on 2026-10-16 (§14); report it to Atlassian
+   or accept a placeholder `baseUrl` and the major version it causes.
 
 ## 16. Review evidence and implementation gates (2026-10-15)
 
