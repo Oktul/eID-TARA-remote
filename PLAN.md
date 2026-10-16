@@ -168,17 +168,15 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   environment's ARI, `ari:cloud:ecosystem::environment/<app>/<environment>`,
   not the bare environment UUID (Phase 0, 2026-10-16), so the setting holds
   the ARI.
-- **Site pin (D5):** when `context.cloudId` is present, it must be a
-  non-empty string in `RELAY_CLOUD_IDS`. A malformed, null or disallowed
-  value is rejected; a fallback must never rescue a mismatch. If installation
-  contexts also contain cloud IDs, they must include the invocation site.
-  When the invocation site is absent, the only permitted fallback is exactly
-  one distinct, non-empty cloud ID across a non-empty installation-context
-  list, with every entry carrying that same ID, and that ID must be allowed.
-  Missing, malformed or ambiguous contexts are rejected. Multiple configured
-  allowed sites do not relax this rule. The fallback is enabled only if
-  Phase 0 establishes that it identifies the calling site for this app's
-  backend invocation path; otherwise a missing invocation site is rejected.
+- **Site pin (D5):** `context.cloudId` must be present and a non-empty
+  string in `RELAY_CLOUD_IDS`. A missing, malformed, null or disallowed value
+  is rejected. If installation contexts also contain cloud IDs, they must
+  include the invocation site; they can never stand in for it. Multiple
+  configured allowed sites do not relax this rule. (Until 2026-10-16 the plan
+  allowed an installation-context fallback for a missing invocation site,
+  gated on Phase 0; Phase 0 found `context.cloudId` on this app's backend
+  invocation path, so the fallback was removed from code and plan, owner,
+  2026-10-16, §14.)
   No unsigned request header or body field can provide the site pin.
   The site ID stays stable on reinstall, unlike `app.installationId`.
 - `app.installationId` is in `RELAY_INSTALLATION_IDS`, only if that is set
@@ -220,9 +218,7 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   resolution: a fractional `exp` rounds down and `nbf` rounds up, so
   sub-nanosecond rounding can only reject. JSON documents nest at most
   16 levels; a FIT payload uses five (`app.installation.contexts[i]`), so
-  the bound only refuses hostile input. The installation-context fallback
-  exists in code and tests but is switched off, with no setting to switch it
-  on, until Phase 0 records the evidence (§14).
+  the bound only refuses hostile input.
 - The response never says which check failed. The log does (`auth_reason`,
   for example `audience` or `cloud_id`), which is what an operator needs.
 
@@ -924,10 +920,9 @@ promotes unreleased work from `main` into a patch release.
     trailing JSON, audience string/array handling, fractional NumericDates,
     range/overflow boundaries and exact clock-skew boundaries. Positive
     fixtures show that unknown ordinary claims remain accepted.
-    Site tests cover allowed invocation context, a mismatch that must not
-    fall back, conflicting context sources, the single-site fallback,
-    ambiguous/malformed/empty fallback contexts and fallback disabled before
-    spike evidence. Never retain live FITs or identifiers in fixtures;
+    Site tests cover allowed invocation context, a mismatch that installation
+    contexts must not rescue, conflicting context sources, malformed contexts
+    and a missing invocation site. Never retain live FITs or identifiers in fixtures;
     use synthetic claims and locally generated test keys only.
   - **Fuzz:** a Go fuzz test (`go test -fuzz`, standard library) feeds the
     token parser arbitrary input and must never panic or accept a token
@@ -1054,7 +1049,7 @@ promotes unreleased work from `main` into a patch release.
      lives 25 s. A relay pinned to another cloud ID refused with
      `cloud_id`, one pinned to another environment with `environment`;
      both answered `401 invalid_token`. The installation-context fallback
-     is not needed and stays disabled. A call from a second real site was
+     is not needed and was removed (owner, 2026-10-16, §4.4). A call from a second real site was
      not run; the pin compares the signed `context.cloudId` alone.
    - **D7 wrapping: PASS.** Upstream `200`, `400`, `401` and `302` all reach
      the function as `200` with `Relay-Upstream-Status`, `Relay-Protocol`,

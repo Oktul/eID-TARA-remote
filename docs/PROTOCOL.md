@@ -241,20 +241,12 @@ lives 25 s; the relay does not depend on that lifetime.
 
 ### 5.4 Site pin (D5)
 
-- When `context.cloudId` is present, it must be a non-empty string in
-  `RELAY_CLOUD_IDS`. A malformed, null or disallowed value is refused; a
-  fallback never rescues a mismatch.
+- `context.cloudId` must be present and a non-empty string in
+  `RELAY_CLOUD_IDS`. A missing, malformed, null or disallowed value is
+  refused. Several allowed sites in `RELAY_CLOUD_IDS` do not relax this rule.
 - If installation contexts also contain cloud IDs, they must include the
-  invocation site.
-- **Missing invocation site:** the only permitted fallback is exactly one
-  distinct, non-empty cloud ID across a non-empty installation-context list,
-  with every entry carrying that same ID, and that ID must be allowed.
-  Missing, malformed or ambiguous contexts are refused. Several allowed sites
-  in `RELAY_CLOUD_IDS` do not relax this rule.
-- **The fallback is switched off.** It exists in code and tests, with no
-  setting to switch it on, until Phase 0 records evidence that it identifies
-  the calling site for this app's backend invocation path (`PLAN.md` §4.4,
-  §14). Until then a FIT without `context.cloudId` is refused.
+  invocation site; they never stand in for a missing one (`PLAN.md` §4.4,
+  §14).
 - No unsigned request header or body field can provide the site pin. The
   site ID stays stable on reinstall, unlike `app.installationId`.
 

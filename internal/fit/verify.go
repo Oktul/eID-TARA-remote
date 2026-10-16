@@ -43,10 +43,6 @@ type Verifier struct {
 	policy Policy
 	keys   keySource
 	now    func() time.Time // time.Now; tests replace it
-	// siteFallback enables the installation-context site fallback of
-	// PLAN.md §4.4. It stays off until Phase 0 records evidence that the
-	// fallback identifies the calling site (PLAN.md §14); only tests set it.
-	siteFallback bool
 }
 
 // NewVerifier returns a Verifier for p that takes signing keys from keys,
@@ -217,40 +213,20 @@ func (v *Verifier) installation(app object) error {
 }
 
 // site applies the site pin and returns the verified cloud ID (PLAN.md §4.4,
-// D5). When the invocation site context.cloudId is present it decides alone:
-// installation contexts may only confirm it, so a mismatch never falls back
-// to them. Malformed shapes are refused even where their value would not be
-// used.
+// D5). The signed context.cloudId decides alone; installation contexts may
+// only confirm it. Phase 0 found it on this app's call path, so a token
+// without it is refused rather than matched by its installation (§14).
+// Malformed shapes are refused even where their value would not be used.
 func (v *Verifier) site(c, app object) (string, error) {
-	invocation, hasInvocation, err := invocationSite(c)
-	if err != nil {
+	site, ok, err := invocationSite(c)
+	if err != nil || !ok || !allowed(v.policy.CloudIDs, site) {
 		return "", reject(ReasonCloudID)
 	}
-	sites, everyContext, err := installationSites(app)
-	if err != nil {
+	sites, err := installationSites(app)
+	if err != nil || len(sites) > 0 && !slices.Contains(sites, site) {
 		return "", reject(ReasonCloudID)
 	}
-	if hasInvocation {
-		if !allowed(v.policy.CloudIDs, invocation) || len(sites) > 0 && !slices.Contains(sites, invocation) {
-			return "", reject(ReasonCloudID)
-		}
-		return invocation, nil
-	}
-	// The fallback needs one unambiguous site: a non-empty context list in
-	// which every entry names the same site. Several allowed sites in the
-	// policy do not relax this.
-	if !v.siteFallback || len(sites) == 0 || !everyContext {
-		return "", reject(ReasonCloudID)
-	}
-	for _, s := range sites[1:] {
-		if s != sites[0] {
-			return "", reject(ReasonCloudID)
-		}
-	}
-	if !allowed(v.policy.CloudIDs, sites[0]) {
-		return "", reject(ReasonCloudID)
-	}
-	return sites[0], nil
+	return site, nil
 }
 
 // invocationSite returns context.cloudId. Both may be absent; a context that
@@ -264,35 +240,32 @@ func invocationSite(c object) (site string, present bool, err error) {
 	return inv.str("cloudId")
 }
 
-// installationSites returns the cloud IDs named in app.installation.contexts
-// and whether every entry named one. Each level may be absent; a present one
-// must have the right shape.
-func installationSites(app object) (sites []string, everyContext bool, err error) {
+// installationSites returns the cloud IDs named in app.installation.contexts.
+// Each level may be absent; a present one must have the right shape.
+func installationSites(app object) ([]string, error) {
 	inst, ok, err := app.obj("installation")
 	if err != nil || !ok {
-		return nil, false, err
+		return nil, err
 	}
 	contexts, ok, err := inst.arr("contexts")
 	if err != nil || !ok {
-		return nil, false, err
+		return nil, err
 	}
-	everyContext = true
+	var sites []string
 	for _, raw := range contexts {
 		entry, err := asObject(raw)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		site, ok, err := entry.str("cloudId")
 		if err != nil || ok && site == "" {
-			return nil, false, errJSON
+			return nil, errJSON
 		}
 		if ok {
 			sites = append(sites, site)
-		} else {
-			everyContext = false
 		}
 	}
-	return sites, everyContext, nil
+	return sites, nil
 }
 
 // allowed reports whether s is a non-empty member of list; an empty

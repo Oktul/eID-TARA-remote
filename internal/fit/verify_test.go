@@ -214,11 +214,6 @@ func TestNewVerifierDefaults(t *testing.T) {
 	p := synthPolicy()
 	p.InstallationIDs = []string{synthInstallID}
 	v := NewVerifier(p, publishedKeys())
-	t.Run("site_fallback_disabled_in_production", func(t *testing.T) {
-		if v.siteFallback {
-			t.Fatal("NewVerifier enabled the site fallback before Phase 0 evidence")
-		}
-	})
 	t.Run("policy_lists_copied", func(t *testing.T) {
 		p.CloudIDs[0] = synthSiteX
 		p.InstallationIDs[0] = "changed"
@@ -875,79 +870,59 @@ func TestVerifySitePin(t *testing.T) {
 		name         string
 		context      string // replaces contextMember; absent removes it
 		installation string // replaces installationMember; absent removes it
-		fallback     bool
 		want         Reason
 		site         string
 	}{
-		{"allowed_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA))), false, "", synthSiteA},
-		{"second_allowed_invocation_site", inv(site(synthSiteB)), inst(contexts(site(synthSiteB))), false, "", synthSiteB},
-		{"invocation_site_without_installation", inv(site(synthSiteA)), absent, false, "", synthSiteA},
-		{"invocation_site_with_empty_contexts", inv(site(synthSiteA)), inst(contexts()), false, "", synthSiteA},
-		{"invocation_site_among_installation_sites", inv(site(synthSiteA)), inst(contexts(site(synthSiteB), site(synthSiteA))), false, "", synthSiteA},
-		{"invocation_site_with_contexts_without_sites", inv(site(synthSiteA)), inst(contexts(`{}`)), false, "", synthSiteA},
-		{"invocation_site_decides_with_fallback_enabled", inv(site(synthSiteB)), inst(contexts(site(synthSiteB))), true, "", synthSiteB},
+		{"allowed_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA))), "", synthSiteA},
+		{"second_allowed_invocation_site", inv(site(synthSiteB)), inst(contexts(site(synthSiteB))), "", synthSiteB},
+		{"invocation_site_without_installation", inv(site(synthSiteA)), absent, "", synthSiteA},
+		{"invocation_site_with_empty_contexts", inv(site(synthSiteA)), inst(contexts()), "", synthSiteA},
+		{"invocation_site_among_installation_sites", inv(site(synthSiteA)), inst(contexts(site(synthSiteB), site(synthSiteA))), "", synthSiteA},
+		{"invocation_site_with_contexts_without_sites", inv(site(synthSiteA)), inst(contexts(`{}`)), "", synthSiteA},
 		// An escaped spelling of the allowed site is the same string once
 		// decoded, so a parser that refused escapes would fail this case.
-		{"invocation_site_value_escaped_accepted", inv(site(esc(strings.TrimSuffix(synthSiteA, "a") + "~u0061"))), inst(contexts(site(synthSiteA))), false, "", synthSiteA},
-		{"installation_site_value_escaped_accepted", inv(site(synthSiteA)), inst(contexts(site(esc("~u0030" + synthSiteA[1:])))), false, "", synthSiteA},
+		{"invocation_site_value_escaped_accepted", inv(site(esc(strings.TrimSuffix(synthSiteA, "a") + "~u0061"))), inst(contexts(site(synthSiteA))), "", synthSiteA},
+		{"installation_site_value_escaped_accepted", inv(site(synthSiteA)), inst(contexts(site(esc("~u0030" + synthSiteA[1:])))), "", synthSiteA},
 
-		{"disallowed_invocation_site", inv(site(synthSiteX)), inst(contexts(site(synthSiteX))), false, ReasonCloudID, ""},
-		{"disallowed_invocation_site_without_installation", inv(site(synthSiteX)), absent, false, ReasonCloudID, ""},
-		{"invocation_site_null", inv(`{"cloudId":null}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"invocation_site_empty", inv(`{"cloudId":""}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"invocation_site_number", inv(`{"cloudId":10}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"invocation_site_array", inv(`{"cloudId":["` + synthSiteA + `"]}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"invocation_site_case_differs", inv(site(strings.ToUpper(synthSiteA))), absent, false, ReasonCloudID, ""},
-		{"context_null", inv(`null`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"context_string", inv(`"` + synthSiteA + `"`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"context_array", inv(`[` + site(synthSiteA) + `]`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
+		{"disallowed_invocation_site", inv(site(synthSiteX)), inst(contexts(site(synthSiteX))), ReasonCloudID, ""},
+		{"disallowed_invocation_site_without_installation", inv(site(synthSiteX)), absent, ReasonCloudID, ""},
+		{"invocation_site_null", inv(`{"cloudId":null}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"invocation_site_empty", inv(`{"cloudId":""}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"invocation_site_number", inv(`{"cloudId":10}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"invocation_site_array", inv(`{"cloudId":["` + synthSiteA + `"]}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"invocation_site_case_differs", inv(site(strings.ToUpper(synthSiteA))), absent, ReasonCloudID, ""},
+		{"context_null", inv(`null`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"context_string", inv(`"` + synthSiteA + `"`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"context_array", inv(`[` + site(synthSiteA) + `]`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
 
-		{"mismatch_does_not_fall_back", inv(site(synthSiteX)), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"mismatch_does_not_fall_back_with_fallback_enabled", inv(site(synthSiteX)), inst(contexts(site(synthSiteA))), true, ReasonCloudID, ""},
-		{"conflicting_sources", inv(site(synthSiteA)), inst(contexts(site(synthSiteB))), false, ReasonCloudID, ""},
-		{"conflicting_sources_with_fallback_enabled", inv(site(synthSiteA)), inst(contexts(site(synthSiteB))), true, ReasonCloudID, ""},
-		{"null_invocation_site_does_not_fall_back", inv(`{"cloudId":null}`), inst(contexts(site(synthSiteA))), true, ReasonCloudID, ""},
+		{"mismatch_does_not_fall_back", inv(site(synthSiteX)), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"conflicting_sources", inv(site(synthSiteA)), inst(contexts(site(synthSiteB))), ReasonCloudID, ""},
+		{"null_invocation_site_does_not_fall_back", inv(`{"cloudId":null}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
 
-		{"installation_null", inv(site(synthSiteA)), inst(`null`), false, ReasonCloudID, ""},
-		{"installation_string", inv(site(synthSiteA)), inst(`"x"`), false, ReasonCloudID, ""},
-		{"installation_array", inv(site(synthSiteA)), inst(`[` + site(synthSiteA) + `]`), false, ReasonCloudID, ""},
-		{"contexts_null", inv(site(synthSiteA)), inst(`{"contexts":null}`), false, ReasonCloudID, ""},
-		{"contexts_object", inv(site(synthSiteA)), inst(`{"contexts":` + site(synthSiteA) + `}`), false, ReasonCloudID, ""},
-		{"context_entry_null", inv(site(synthSiteA)), inst(contexts(`null`)), false, ReasonCloudID, ""},
-		{"context_entry_string", inv(site(synthSiteA)), inst(contexts(`"` + synthSiteA + `"`)), false, ReasonCloudID, ""},
-		{"context_entry_site_null", inv(site(synthSiteA)), inst(contexts(`{"cloudId":null}`)), false, ReasonCloudID, ""},
-		{"context_entry_site_empty", inv(site(synthSiteA)), inst(contexts(`{"cloudId":""}`)), false, ReasonCloudID, ""},
-		{"context_entry_site_empty_beside_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA), `{"cloudId":""}`)), false, ReasonCloudID, ""},
-		{"context_entry_site_null_beside_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA), `{"cloudId":null}`)), false, ReasonCloudID, ""},
-		{"context_entry_site_number", inv(site(synthSiteA)), inst(contexts(`{"cloudId":1}`)), false, ReasonCloudID, ""},
+		{"installation_null", inv(site(synthSiteA)), inst(`null`), ReasonCloudID, ""},
+		{"installation_string", inv(site(synthSiteA)), inst(`"x"`), ReasonCloudID, ""},
+		{"installation_array", inv(site(synthSiteA)), inst(`[` + site(synthSiteA) + `]`), ReasonCloudID, ""},
+		{"contexts_null", inv(site(synthSiteA)), inst(`{"contexts":null}`), ReasonCloudID, ""},
+		{"contexts_object", inv(site(synthSiteA)), inst(`{"contexts":` + site(synthSiteA) + `}`), ReasonCloudID, ""},
+		{"context_entry_null", inv(site(synthSiteA)), inst(contexts(`null`)), ReasonCloudID, ""},
+		{"context_entry_string", inv(site(synthSiteA)), inst(contexts(`"` + synthSiteA + `"`)), ReasonCloudID, ""},
+		{"context_entry_site_null", inv(site(synthSiteA)), inst(contexts(`{"cloudId":null}`)), ReasonCloudID, ""},
+		{"context_entry_site_empty", inv(site(synthSiteA)), inst(contexts(`{"cloudId":""}`)), ReasonCloudID, ""},
+		{"context_entry_site_empty_beside_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA), `{"cloudId":""}`)), ReasonCloudID, ""},
+		{"context_entry_site_null_beside_invocation_site", inv(site(synthSiteA)), inst(contexts(site(synthSiteA), `{"cloudId":null}`)), ReasonCloudID, ""},
+		{"context_entry_site_number", inv(site(synthSiteA)), inst(contexts(`{"cloudId":1}`)), ReasonCloudID, ""},
 
-		{"missing_site_rejected_without_fallback", absent, inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"context_without_site_rejected_without_fallback", inv(`{"moduleKey":"token-relay"}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"context_name_case_variant", `"CONTEXT":` + site(synthSiteA) + `,`, inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"cloudId_name_case_variant", inv(`{"CloudId":"` + synthSiteA + `"}`), inst(contexts(site(synthSiteA))), false, ReasonCloudID, ""},
-		{"no_site_anywhere", absent, absent, false, ReasonCloudID, ""},
-
-		{"fallback_single_site", absent, inst(contexts(site(synthSiteA))), true, "", synthSiteA},
-		{"fallback_repeated_single_site", absent, inst(contexts(site(synthSiteB), site(synthSiteB))), true, "", synthSiteB},
-		{"fallback_context_without_site", inv(`{"moduleKey":"token-relay"}`), inst(contexts(site(synthSiteA))), true, "", synthSiteA},
-		{"fallback_zero_contexts", absent, inst(contexts()), true, ReasonCloudID, ""},
-		{"fallback_contexts_absent", absent, inst(`{}`), true, ReasonCloudID, ""},
-		{"fallback_installation_absent", absent, absent, true, ReasonCloudID, ""},
-		{"fallback_two_distinct_allowed_sites", absent, inst(contexts(site(synthSiteA), site(synthSiteB))), true, ReasonCloudID, ""},
-		{"fallback_entry_without_site", absent, inst(contexts(site(synthSiteA), `{}`)), true, ReasonCloudID, ""},
-		{"fallback_only_entries_without_site", absent, inst(contexts(`{}`)), true, ReasonCloudID, ""},
-		{"fallback_malformed_entry", absent, inst(contexts(site(synthSiteA), `null`)), true, ReasonCloudID, ""},
-		{"fallback_malformed_site", absent, inst(contexts(site(synthSiteA), `{"cloudId":""}`)), true, ReasonCloudID, ""},
-		{"fallback_disallowed_site", absent, inst(contexts(site(synthSiteX))), true, ReasonCloudID, ""},
-		{"fallback_case_variant_entry_name", absent, inst(contexts(`{"CloudId":"` + synthSiteA + `"}`)), true, ReasonCloudID, ""},
+		{"missing_site_rejected", absent, inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"context_without_site_rejected", inv(`{"moduleKey":"token-relay"}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"context_name_case_variant", `"CONTEXT":` + site(synthSiteA) + `,`, inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"cloudId_name_case_variant", inv(`{"CloudId":"` + synthSiteA + `"}`), inst(contexts(site(synthSiteA))), ReasonCloudID, ""},
+		{"no_site_anywhere", absent, absent, ReasonCloudID, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := edit(t, validPayload, contextMember, tc.context, installationMember, tc.installation)
 			requireEscape(t, tc.name, payload)
-			v := newTestVerifier(publishedKeys())
-			v.siteFallback = tc.fallback
-			got, err := verifyToken(t, v, signRaw(t, signers().primary, validHeader, payload))
+			got, err := verifyToken(t, newTestVerifier(publishedKeys()), signRaw(t, signers().primary, validHeader, payload))
 			checkResult(t, got, err, tc.want, Claims{CloudID: tc.site})
 		})
 	}
@@ -958,12 +933,8 @@ func TestVerifySitePin(t *testing.T) {
 func TestVerifySiteOnlyFromPayload(t *testing.T) {
 	header := `{"alg":"RS256","kid":"` + synthKID + `","context":{"cloudId":"` + synthSiteA + `"},"cloudId":"` + synthSiteA + `"}`
 	payload := edit(t, validPayload, contextMember, "", installationMember, "")
-	for _, fallback := range []bool{false, true} {
-		v := newTestVerifier(publishedKeys())
-		v.siteFallback = fallback
-		got, err := verifyToken(t, v, signRaw(t, signers().primary, header, payload))
-		checkResult(t, got, err, ReasonCloudID, Claims{})
-	}
+	got, err := verifyToken(t, newTestVerifier(publishedKeys()), signRaw(t, signers().primary, header, payload))
+	checkResult(t, got, err, ReasonCloudID, Claims{})
 }
 
 // TestVerifyEmptyPolicyValuesNeverMatch shows that a missing setting fails
