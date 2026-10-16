@@ -134,8 +134,6 @@ type Error struct {
 // Error returns "<Setting>: <Reason>".
 func (e *Error) Error() string { return e.Setting + ": " + e.Reason }
 
-func fail(setting, reason string) error { return &Error{Setting: setting, Reason: reason} }
-
 // Load reads and validates the settings in environ, which has the
 // "NAME=value" form of os.Environ. Settings are checked in the order of the
 // PLAN.md §8 table, and the first failure is returned as an *Error.
@@ -158,7 +156,9 @@ func Load(environ []string) (*Config, []string, error) {
 // the probe does not depend on the rest of the configuration.
 func HealthPort(environ []string) (int, error) {
 	env, _ := parseEnviron(environ)
-	return env.port()
+	l := &loader{env: env}
+	port := l.port()
+	return port, l.err
 }
 
 // Summary returns the startup summary of PLAN.md §10 (O-5): one attribute
@@ -282,66 +282,50 @@ func reportedName(name string) string {
 	return name
 }
 
+// loader reads the settings of env and keeps the first error, so load reads
+// as the list of settings it checks. Once an error is kept, value returns
+// nothing: no later file is read and no later setting is reported. Checks on
+// the empty values that follow are harmless, since fail keeps only the
+// first error and load discards the Config.
+type loader struct {
+	env environment
+	err error
+}
+
+// fail records a configuration error unless an earlier one is kept.
+func (l *loader) fail(setting, reason string) {
+	if l.err == nil {
+		l.err = &Error{Setting: setting, Reason: reason}
+	}
+}
+
 // load checks the settings in the order of the PLAN.md §8 table.
 //
 // The forward parsers return fixed error strings that never contain their
 // input (internal/forward), so their text is a safe Reason.
 func (e environment) load() (*Config, error) {
+	l := &loader{env: e}
 	var c Config
-	var err error
-	if c.AppID, err = e.appID(); err != nil {
-		return nil, err
-	}
-	if c.EnvironmentID, err = e.id("RELAY_ENVIRONMENT_ID"); err != nil {
-		return nil, err
-	}
-	if c.CloudIDs, err = e.ids("RELAY_CLOUD_IDS", true); err != nil {
-		return nil, err
-	}
-	if c.Upstream, err = e.upstream(); err != nil {
-		return nil, err
-	}
-	if c.Routes, err = e.routes(); err != nil {
-		return nil, err
-	}
-	if c.Credential, c.CredentialFromFile, err = e.credential(); err != nil {
-		return nil, err
-	}
-	if c.UpstreamCAs, err = e.upstreamCAs(); err != nil {
-		return nil, err
-	}
-	if c.InstallationIDs, err = e.ids("RELAY_INSTALLATION_IDS", false); err != nil {
-		return nil, err
-	}
-	if c.RequestHeaders, err = e.headers("RELAY_REQUEST_HEADERS", defaultRequestHeaders, forward.ParseRequestHeaders); err != nil {
-		return nil, err
-	}
-	if c.ResponseHeaders, err = e.headers("RELAY_RESPONSE_HEADERS", defaultResponseHeaders, forward.ParseResponseHeaders); err != nil {
-		return nil, err
-	}
-	if c.Port, err = e.port(); err != nil {
-		return nil, err
-	}
-	if c.UpstreamTimeout, err = e.upstreamTimeout(); err != nil {
-		return nil, err
-	}
-	if c.MaxRequestBytes, c.MaxResponseBytes, c.MaxConcurrent, err = e.payloadLimits(); err != nil {
-		return nil, err
-	}
-	if c.ClockSkew, err = e.clockSkew(); err != nil {
-		return nil, err
-	}
-	if c.JWKSURL, err = e.jwksURL(); err != nil {
-		return nil, err
-	}
-	if c.JWKSRefresh, c.JWKSMaxAge, err = e.jwksAges(); err != nil {
-		return nil, err
-	}
-	if c.ShutdownGrace, err = e.duration("RELAY_SHUTDOWN_GRACE", defaultShutdownGrace, true); err != nil {
-		return nil, err
-	}
-	if c.LogLevel, err = e.logLevel(); err != nil {
-		return nil, err
+	c.AppID = l.appID()
+	c.EnvironmentID = l.id("RELAY_ENVIRONMENT_ID")
+	c.CloudIDs = l.ids("RELAY_CLOUD_IDS", true)
+	c.Upstream = l.upstream()
+	c.Routes = l.routes()
+	c.Credential, c.CredentialFromFile = l.credential()
+	c.UpstreamCAs = l.upstreamCAs()
+	c.InstallationIDs = l.ids("RELAY_INSTALLATION_IDS", false)
+	c.RequestHeaders = l.headers("RELAY_REQUEST_HEADERS", defaultRequestHeaders, forward.ParseRequestHeaders)
+	c.ResponseHeaders = l.headers("RELAY_RESPONSE_HEADERS", defaultResponseHeaders, forward.ParseResponseHeaders)
+	c.Port = l.port()
+	c.UpstreamTimeout = l.upstreamTimeout()
+	c.MaxRequestBytes, c.MaxResponseBytes, c.MaxConcurrent = l.payloadLimits()
+	c.ClockSkew = l.clockSkew()
+	c.JWKSURL = l.jwksURL()
+	c.JWKSRefresh, c.JWKSMaxAge = l.jwksAges()
+	c.ShutdownGrace = l.duration("RELAY_SHUTDOWN_GRACE", defaultShutdownGrace, true)
+	c.LogLevel = l.logLevel()
+	if l.err != nil {
+		return nil, l.err
 	}
 	return &c, nil
 }
@@ -351,38 +335,43 @@ func (e environment) load() (*Config, error) {
 // neither is set. A variable that is present but empty is an error rather
 // than a request for the default (PLAN.md §8): in a deploy file it is more
 // likely a mistake than a choice.
-func (e environment) value(name string, required bool) (string, bool, error) {
+func (l *loader) value(name string, required bool) (string, bool) {
+	if l.err != nil {
+		return "", false
+	}
 	fileName := name + fileSuffix
 	for _, n := range [...]string{name, fileName} {
-		if e.repeated[n] {
-			return "", false, fail(n, "set more than once")
+		if l.env.repeated[n] {
+			l.fail(n, "set more than once")
+			return "", false
 		}
 	}
-	v, inEnv := e.vars[name]
-	path, inFile := e.vars[fileName]
+	v, inEnv := l.env.vars[name]
+	path, inFile := l.env.vars[fileName]
 	switch {
 	case inEnv && inFile:
-		return "", false, fail(name, "set only one of "+name+" and "+fileName)
+		l.fail(name, "set only one of "+name+" and "+fileName)
 	case inEnv && v == "":
-		return "", false, fail(name, emptyReason(required))
+		l.fail(name, emptyReason(required))
 	case inEnv:
-		return v, false, nil
+		return v, false
 	case inFile && path == "":
-		return "", false, fail(fileName, emptyReason(required))
+		l.fail(fileName, emptyReason(required))
 	case inFile:
 		b, reason := readFile(path, MaxSettingFileBytes)
 		if reason != "" {
-			return "", false, fail(fileName, reason)
+			l.fail(fileName, reason)
+			break
 		}
-		v = trimLineEnding(string(b))
-		if v == "" {
-			return "", false, fail(fileName, "file is empty")
+		if v = trimLineEnding(string(b)); v == "" {
+			l.fail(fileName, "file is empty")
+			break
 		}
-		return v, true, nil
+		return v, true
 	case required:
-		return "", false, fail(name, "required")
+		l.fail(name, "required")
 	}
-	return "", false, nil
+	return "", false
 }
 
 func emptyReason(required bool) string {
@@ -393,15 +382,11 @@ func emptyReason(required bool) string {
 }
 
 // optional returns the value of a setting, or def when it is unset.
-func (e environment) optional(name, def string) (string, error) {
-	v, _, err := e.value(name, false)
-	if err != nil {
-		return "", err
+func (l *loader) optional(name, def string) string {
+	if v, _ := l.value(name, false); v != "" {
+		return v
 	}
-	if v == "" {
-		return def, nil
-	}
-	return v, nil
+	return def
 }
 
 // readFile reads path, which must hold at most limit bytes. It returns a
@@ -437,36 +422,35 @@ func trimLineEnding(s string) string {
 	return strings.TrimSuffix(s, "\n")
 }
 
-// splitList splits a comma-separated setting (PLAN.md §8). Spaces and tabs
+// list splits the comma-separated setting name (PLAN.md §8). Spaces and tabs
 // around an item are ignored; an empty or repeated item is refused, since it
 // usually means a copy-and-paste mistake.
-func splitList(name, s string) ([]string, error) {
+func (l *loader) list(name, s string) []string {
 	items := strings.Split(s, ",")
 	seen := make(map[string]bool, len(items))
 	for i, item := range items {
 		item = strings.Trim(item, " \t")
 		switch {
 		case item == "":
-			return nil, fail(name, "empty list item")
+			l.fail(name, "empty list item")
+			return nil
 		case seen[item]:
-			return nil, fail(name, "duplicate list item")
+			l.fail(name, "duplicate list item")
+			return nil
 		}
 		seen[item] = true
 		items[i] = item
 	}
-	return items, nil
+	return items
 }
 
-func (e environment) appID() (string, error) {
+func (l *loader) appID() string {
 	const name = "RELAY_APP_ID"
-	v, _, err := e.value(name, true)
-	if err != nil {
-		return "", err
-	}
+	v, _ := l.value(name, true)
 	if !validAppID(v) {
-		return "", fail(name, "want "+appIDPrefix+" followed by a lowercase UUID")
+		l.fail(name, "want "+appIDPrefix+" followed by a lowercase UUID")
 	}
-	return v, nil
+	return v
 }
 
 // validAppID reports whether s is a canonical app ARI. The FIT audience is
@@ -493,32 +477,26 @@ func validAppID(s string) bool {
 	return true
 }
 
-func (e environment) id(name string) (string, error) {
-	v, _, err := e.value(name, true)
-	if err != nil {
-		return "", err
-	}
+func (l *loader) id(name string) string {
+	v, _ := l.value(name, true)
 	if !validID(v) {
-		return "", fail(name, idReason())
+		l.fail(name, idReason())
 	}
-	return v, nil
+	return v
 }
 
-func (e environment) ids(name string, required bool) ([]string, error) {
-	v, _, err := e.value(name, required)
-	if err != nil || v == "" {
-		return nil, err
+func (l *loader) ids(name string, required bool) []string {
+	v, _ := l.value(name, required)
+	if v == "" {
+		return nil
 	}
-	items, err := splitList(name, v)
-	if err != nil {
-		return nil, err
-	}
+	items := l.list(name, v)
 	for _, item := range items {
 		if !validID(item) {
-			return nil, fail(name, idReason())
+			l.fail(name, idReason())
 		}
 	}
-	return items, nil
+	return items
 }
 
 func idReason() string {
@@ -541,64 +519,56 @@ func validID(s string) bool {
 	return true
 }
 
-func (e environment) upstream() (forward.Upstream, error) {
+func (l *loader) upstream() forward.Upstream {
 	const name = "RELAY_UPSTREAM_URL"
-	v, _, err := e.value(name, true)
-	if err != nil {
-		return forward.Upstream{}, err
-	}
+	v, _ := l.value(name, true)
 	u, err := forward.ParseUpstream(v)
 	if err != nil {
-		return forward.Upstream{}, fail(name, err.Error())
+		l.fail(name, err.Error())
 	}
-	return u, nil
+	return u
 }
 
-func (e environment) routes() ([]forward.Route, error) {
+func (l *loader) routes() []forward.Route {
 	const name = "RELAY_ROUTES"
-	v, _, err := e.value(name, true)
+	v, _ := l.value(name, true)
+	routes, err := forward.ParseRoutes(l.list(name, v))
 	if err != nil {
-		return nil, err
+		l.fail(name, err.Error())
 	}
-	items, err := splitList(name, v)
-	if err != nil {
-		return nil, err
-	}
-	routes, err := forward.ParseRoutes(items)
-	if err != nil {
-		return nil, fail(name, err.Error())
-	}
-	return routes, nil
+	return routes
 }
 
-func (e environment) credential() (*forward.Credential, bool, error) {
+func (l *loader) credential() (*forward.Credential, bool) {
 	const name = "RELAY_UPSTREAM_AUTH"
-	v, fromFile, err := e.value(name, false)
-	if err != nil || v == "" {
-		return nil, false, err
+	v, fromFile := l.value(name, false)
+	if v == "" {
+		return nil, false
 	}
 	cred, err := forward.ParseCredential(v)
 	if err != nil {
-		return nil, false, fail(name, err.Error())
+		l.fail(name, err.Error())
+		return nil, false
 	}
-	return &cred, fromFile, nil
+	return &cred, fromFile
 }
 
-func (e environment) upstreamCAs() (*x509.CertPool, error) {
+func (l *loader) upstreamCAs() *x509.CertPool {
 	const name = "RELAY_UPSTREAM_CA_FILE"
-	path, _, err := e.value(name, false)
-	if err != nil || path == "" {
-		return nil, err
+	path, _ := l.value(name, false)
+	if path == "" {
+		return nil
 	}
 	data, reason := readFile(path, MaxCAFileBytes)
 	if reason != "" {
-		return nil, fail(name, reason)
+		l.fail(name, reason)
+		return nil
 	}
 	pool, reason := parseCAs(data)
 	if reason != "" {
-		return nil, fail(name, reason)
+		l.fail(name, reason)
 	}
-	return pool, nil
+	return pool
 }
 
 const pemSpace = " \t\r\n"
@@ -641,33 +611,22 @@ func parseCAs(data []byte) (*x509.CertPool, string) {
 	return pool, ""
 }
 
-func (e environment) headers(name, def string, parse func([]string) ([]string, error)) ([]string, error) {
-	v, err := e.optional(name, def)
+func (l *loader) headers(name, def string, parse func([]string) ([]string, error)) []string {
+	h, err := parse(l.list(name, l.optional(name, def)))
 	if err != nil {
-		return nil, err
+		l.fail(name, err.Error())
 	}
-	items, err := splitList(name, v)
-	if err != nil {
-		return nil, err
-	}
-	h, err := parse(items)
-	if err != nil {
-		return nil, fail(name, err.Error())
-	}
-	return h, nil
+	return h
 }
 
-func (e environment) port() (int, error) {
+func (l *loader) port() int {
 	const name = "RELAY_PORT"
-	v, err := e.optional(name, defaultPort)
-	if err != nil {
-		return 0, err
-	}
-	n, ok := parseDigits(v)
+	n, ok := parseDigits(l.optional(name, defaultPort))
 	if !ok || n < 1 || n > forward.MaxPort {
-		return 0, fail(name, "want a port number from 1 to "+strconv.Itoa(forward.MaxPort))
+		l.fail(name, "want a port number from 1 to "+strconv.Itoa(forward.MaxPort))
+		return 0
 	}
-	return int(n), nil
+	return int(n)
 }
 
 // parseDigits parses a decimal integer of ASCII digits only: strconv alone
@@ -687,76 +646,58 @@ func parseDigits(s string) (int64, bool) {
 
 // duration parses a time.ParseDuration setting such as "10s". positive
 // refuses zero; every duration refuses negative values.
-func (e environment) duration(name, def string, positive bool) (time.Duration, error) {
-	v, err := e.optional(name, def)
-	if err != nil {
-		return 0, err
-	}
-	d, err := time.ParseDuration(v)
+func (l *loader) duration(name, def string, positive bool) time.Duration {
+	d, err := time.ParseDuration(l.optional(name, def))
 	switch {
 	case err != nil: // its text quotes the input
-		return 0, fail(name, "want a duration such as 10s")
+		l.fail(name, "want a duration such as 10s")
 	case positive && d <= 0:
-		return 0, fail(name, "must be greater than zero")
+		l.fail(name, "must be greater than zero")
 	case d < 0:
-		return 0, fail(name, "must not be negative")
+		l.fail(name, "must not be negative")
 	}
-	return d, nil
+	return d
 }
 
-func (e environment) clockSkew() (time.Duration, error) {
+func (l *loader) clockSkew() time.Duration {
 	const name = "RELAY_CLOCK_SKEW"
-	d, err := e.duration(name, defaultClockSkew, false)
-	if err != nil {
-		return 0, err
-	}
+	d := l.duration(name, defaultClockSkew, false)
 	if d > MaxClockSkew {
-		return 0, fail(name, "must be at most "+MaxClockSkew.String())
+		l.fail(name, "must be at most "+MaxClockSkew.String())
 	}
-	return d, nil
+	return d
 }
 
-func (e environment) upstreamTimeout() (time.Duration, error) {
+func (l *loader) upstreamTimeout() time.Duration {
 	const name = "RELAY_UPSTREAM_TIMEOUT"
-	d, err := e.duration(name, defaultUpstreamTimeout, true)
-	if err != nil {
-		return 0, err
-	}
+	d := l.duration(name, defaultUpstreamTimeout, true)
 	if d > math.MaxInt64-WriteTimeoutMargin {
-		return 0, fail(name, "too large: the server's write timeout adds "+WriteTimeoutMargin.String())
+		l.fail(name, "too large: the server's write timeout adds "+WriteTimeoutMargin.String())
 	}
-	return d, nil
+	return d
 }
 
-func (e environment) count(name, def string) (int64, error) {
-	v, err := e.optional(name, def)
-	if err != nil {
-		return 0, err
-	}
-	n, ok := parseDigits(v)
+func (l *loader) count(name, def string) int64 {
+	n, ok := parseDigits(l.optional(name, def))
 	if !ok || n < 1 {
-		return 0, fail(name, "want a whole number of at least 1, digits only")
+		l.fail(name, "want a whole number of at least 1, digits only")
+		return 0
 	}
-	return n, nil
+	return n
 }
 
-func (e environment) payloadLimits() (request, response int64, concurrent int, err error) {
-	if request, err = e.count("RELAY_MAX_REQUEST_BYTES", defaultMaxRequestBytes); err != nil {
-		return 0, 0, 0, err
-	}
-	if response, err = e.count("RELAY_MAX_RESPONSE_BYTES", defaultMaxResponseBytes); err != nil {
-		return 0, 0, 0, err
-	}
-	n, err := e.count("RELAY_MAX_CONCURRENT", defaultMaxConcurrent)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	if !withinBudget(n, request, response) {
-		return 0, 0, 0, fail("RELAY_MAX_CONCURRENT, RELAY_MAX_REQUEST_BYTES, RELAY_MAX_RESPONSE_BYTES",
+func (l *loader) payloadLimits() (request, response int64, concurrent int) {
+	request = l.count("RELAY_MAX_REQUEST_BYTES", defaultMaxRequestBytes)
+	response = l.count("RELAY_MAX_RESPONSE_BYTES", defaultMaxResponseBytes)
+	n := l.count("RELAY_MAX_CONCURRENT", defaultMaxConcurrent)
+	// withinBudget needs operands of at least 1, which count guarantees only
+	// when it did not fail.
+	if l.err == nil && !withinBudget(n, request, response) {
+		l.fail("RELAY_MAX_CONCURRENT, RELAY_MAX_REQUEST_BYTES, RELAY_MAX_RESPONSE_BYTES",
 			"concurrency times (request limit + response limit) must not exceed "+strconv.Itoa(MaxPayloadBudget)+" bytes")
 	}
 	// The budget keeps n far inside the int range.
-	return request, response, int(n), nil
+	return request, response, int(n)
 }
 
 // withinBudget reports whether concurrent × (request + response) is at most
@@ -770,12 +711,9 @@ func withinBudget(concurrent, request, response int64) bool {
 	return concurrent <= MaxPayloadBudget/(request+response)
 }
 
-func (e environment) jwksURL() (string, error) {
+func (l *loader) jwksURL() string {
 	const name = "RELAY_JWKS_URL"
-	v, err := e.optional(name, DefaultJWKSURL)
-	if err != nil {
-		return "", err
-	}
+	v := l.optional(name, DefaultJWKSURL)
 	// The keys decide which FITs are trusted, so only HTTPS will do
 	// (PLAN.md §4.5). Userinfo or a query would put a secret into the URL
 	// that the startup summary logs, and a fragment is never sent, so it can
@@ -785,42 +723,35 @@ func (e environment) jwksURL() (string, error) {
 	u, err := url.Parse(v)
 	if !strings.HasPrefix(v, "https://") || strings.ContainsAny(v, "?#") ||
 		err != nil || u.User != nil || u.Hostname() == "" || !forward.ValidURLPort(u.Port()) {
-		return "", fail(name, "want an https URL with a host and no userinfo, query or fragment")
+		l.fail(name, "want an https URL with a host and no userinfo, query or fragment")
 	}
-	return v, nil
+	return v
 }
 
-func (e environment) jwksAges() (refresh, maxAge time.Duration, err error) {
-	if refresh, err = e.duration("RELAY_JWKS_REFRESH", defaultJWKSRefresh, true); err != nil {
-		return 0, 0, err
-	}
-	if maxAge, err = e.duration("RELAY_JWKS_MAX_AGE", defaultJWKSMaxAge, true); err != nil {
-		return 0, 0, err
-	}
+func (l *loader) jwksAges() (refresh, maxAge time.Duration) {
+	refresh = l.duration("RELAY_JWKS_REFRESH", defaultJWKSRefresh, true)
+	maxAge = l.duration("RELAY_JWKS_MAX_AGE", defaultJWKSMaxAge, true)
 	// The snapshot would otherwise reach its maximum age before the next
 	// scheduled refresh (PLAN.md §4.5: 0 < refresh < max age).
 	if refresh >= maxAge {
-		return 0, 0, fail("RELAY_JWKS_REFRESH", "must be less than RELAY_JWKS_MAX_AGE")
+		l.fail("RELAY_JWKS_REFRESH", "must be less than RELAY_JWKS_MAX_AGE")
 	}
-	return refresh, maxAge, nil
+	return refresh, maxAge
 }
 
-func (e environment) logLevel() (slog.Level, error) {
+func (l *loader) logLevel() slog.Level {
 	const name = "RELAY_LOG_LEVEL"
-	v, err := e.optional(name, defaultLogLevel)
-	if err != nil {
-		return 0, err
-	}
 	// Exact names only: slog's own parser also accepts "INFO+2" and any case.
-	switch v {
+	switch l.optional(name, defaultLogLevel) {
 	case "debug":
-		return slog.LevelDebug, nil
+		return slog.LevelDebug
 	case "info":
-		return slog.LevelInfo, nil
+		return slog.LevelInfo
 	case "warn":
-		return slog.LevelWarn, nil
+		return slog.LevelWarn
 	case "error":
-		return slog.LevelError, nil
+		return slog.LevelError
 	}
-	return 0, fail(name, "want debug, info, warn or error")
+	l.fail(name, "want debug, info, warn or error")
+	return 0
 }
