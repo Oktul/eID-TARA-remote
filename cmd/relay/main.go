@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -88,6 +89,10 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 // roots, and a test passes one that trusts its loopback JWKS server, to check
 // when shutdown stops the key worker.
 func serve(ctx context.Context, host string, environ []string, stdout io.Writer, jwksClient *http.Client) int {
+	// net/http can print raw unsolicited upstream bytes through the process's
+	// standard logger. Only our explicit, classified slog records may reach
+	// output (PLAN.md §10); Transport has no per-client diagnostic logger.
+	log.SetOutput(io.Discard)
 	cfg, unknown, err := config.Load(environ)
 	level := slog.LevelInfo
 	if err == nil {
@@ -185,6 +190,9 @@ func newLogger(w io.Writer, level slog.Level) *slog.Logger {
 // error included: Docker reserves exit code 2 for health checks. It reads
 // only the port and whether built-in TLS is on, never the credential.
 func healthcheck(ctx context.Context, args, environ []string, stderr io.Writer) int {
+	// The probe's HTTP client can emit the same raw net/http diagnostics as
+	// serve. Keep its output restricted to the fixed errors below (§10).
+	log.SetOutput(io.Discard)
 	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	ready := fs.Bool("ready", false, "check /readyz instead of /livez")

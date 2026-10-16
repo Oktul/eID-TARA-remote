@@ -1107,6 +1107,11 @@ as separate commits, alongside the Phase 2 review.
   rejection and a successful HTTP/1.1 answer.
   All five required Go checks pass on this branch, including the Linux
   race tests; `govulncheck` reports no vulnerabilities.
+- Carried the Phase 1 suppression of standard-library HTTP diagnostics
+  (§10). Both serve and healthcheck discard raw unsolicited-response
+  diagnostics; explicit JSON request and lifecycle logs remain. HTTP
+  regression fixtures cover both commands. All five required Go checks
+  pass, including Linux race tests; no vulnerabilities are reported.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and Codex's review. Phase 2 also needs its release verifications
