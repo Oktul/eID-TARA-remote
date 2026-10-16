@@ -255,13 +255,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 
 	// Step 4: the body, bounded (R-4).
 	body, err := readBody(w, r, s.cfg.MaxRequestBytes)
-	// net/http started the write deadline when the request header was read.
-	// A slow body or an unknown-key wait would eat into the time the answer
-	// needs: a token exchange could succeed upstream while its answer is
-	// dropped, and a body that goes over the limit late would get no 413
-	// (PLAN.md §4.3, §6 R-1, R-8). So the deadline restarts here, whether
-	// the body was read or refused. The error only says the writer cannot
-	// set deadlines (a test recorder); the server's own timeout then applies.
+	// Restart the write deadline, which net/http started at the request
+	// header, whether the body was read or refused: a slow body or key wait
+	// must not eat the answer's time, or a token exchange could succeed
+	// upstream while its answer, or a late 413, is dropped (PLAN.md §6, R-8).
+	// The error only means the writer cannot set deadlines (a test
+	// recorder); the server's timeout then applies.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.cfg.UpstreamTimeout + config.WriteTimeoutMargin))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
@@ -304,14 +303,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 }
 
 // readBody reads the request body up to limit. http.MaxBytesReader, unlike a
-// plain io.LimitReader, reports the overrun as *http.MaxBytesError, and it
-// tells net/http that the limit was hit. net/http then half-closes the
-// connection after the 413 and waits briefly before closing it, so bytes
-// the client is still sending, such as a pipelined request, cannot reset
-// the connection before the client has read the 413. Only net/http's own
-// ResponseWriter takes that signal, so it gets that one, not the
-// statusWriter. (That the 413 comes without first draining the body is the
-// work of the Connection: close that handle sets.)
+// plain io.LimitReader, also tells net/http that the limit was hit, so it
+// half-closes the connection after the 413 and waits briefly: bytes the
+// client is still sending cannot reset the connection before it has read
+// the 413. Only net/http's own ResponseWriter takes that signal, so it gets
+// that one, not the statusWriter.
 func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
 	if r.ContentLength > limit {
 		return nil, &http.MaxBytesError{Limit: limit}

@@ -52,12 +52,9 @@ const (
 	// maxJWKSHeaderBytes bounds the JWKS response headers, which Go's
 	// transport would otherwise accept up to 10 MiB.
 	maxJWKSHeaderBytes = 32 << 10
-	// PLAN.md §5 sets these for the JWKS client too (2026-10-16). Go dials
-	// on a context detached from the request, so JWKSFetchTimeout ends a
-	// fetch but not its dial or TLS handshake. The dial timeout bounds a
-	// connect that never completes; the handshake timeout closes a peer that
-	// accepts and stays silent, which would otherwise hold the socket for as
-	// long as it stays open.
+	// The upstream client's dial and handshake timeouts (PLAN.md §5,
+	// 2026-10-16): Go dials on a context detached from the fetch, so
+	// JWKSFetchTimeout alone would not end a stalled connect or handshake.
 	dialTimeout         = 30 * time.Second
 	tlsHandshakeTimeout = 10 * time.Second
 	// crypto/rsa refuses to verify with an even e or one outside these

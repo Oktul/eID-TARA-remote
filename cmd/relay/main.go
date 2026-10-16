@@ -80,13 +80,11 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 }
 
 // serve runs the relay until ctx is done, then shuts down gracefully
-// (PLAN.md §6 R-11). It listens on host, empty for every interface: in a
-// container the proxy reaches the relay over the container network. Tests
-// pass 127.0.0.1, because a listener on every interface makes Windows
-// Firewall ask about each freshly built test binary. It fetches signing keys
-// with jwksClient: run passes fit.JWKSClient, which trusts only the system
-// roots, and a test passes one that trusts its loopback JWKS server, to check
-// when shutdown stops the key worker.
+// (PLAN.md §6 R-11). host is empty, every interface, in production, since
+// the proxy reaches the relay over the container network; tests pass
+// 127.0.0.1, so Windows Firewall does not ask about each test binary.
+// jwksClient is fit.JWKSClient in production; tests pass one that trusts
+// their loopback JWKS server.
 func serve(ctx context.Context, host string, environ []string, stdout io.Writer, jwksClient *http.Client) int {
 	// net/http can print raw unsolicited upstream bytes through the process's
 	// standard logger. Only our explicit, classified slog records may reach

@@ -52,11 +52,9 @@ const (
 	idleConnTimeout = 90 * time.Second
 	tcpKeepAlive    = 30 * time.Second
 
-	// PLAN.md §5 sets these (2026-10-16). Go dials on a context detached
-	// from the request, so Options.Timeout ends a call but not its dial or
-	// TLS handshake. The dial timeout bounds a connect that never completes;
-	// the handshake timeout closes a peer that accepts and stays silent,
-	// which would otherwise hold the socket for as long as it stays open.
+	// PLAN.md §5 (2026-10-16): Go dials on a context detached from the
+	// request, so Options.Timeout alone would not end a connect that never
+	// completes or a peer that accepts and then stays silent.
 	dialTimeout         = 30 * time.Second
 	tlsHandshakeTimeout = 10 * time.Second
 )
