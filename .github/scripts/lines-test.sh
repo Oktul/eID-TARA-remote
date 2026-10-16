@@ -30,6 +30,17 @@ assert_lines() {
 	printf '%s: %s\n' "$name" "$actual"
 }
 
+# assert_warning checks that the last assert_lines run announced the extra
+# support for major 1, so the v2.0.0 tag gets fixed.
+assert_warning() {
+	local warning
+	warning=$(<"$errors")
+	if [[ $warning != '::warning::v2.0.0 is missing or a lightweight tag'* ]]; then
+		printf '%s: want a warning, got %s\n' "$1" "${warning:-nothing}" >&2
+		exit 1
+	fi
+}
+
 branch() {
 	git -C "$fixture" update-ref "refs/remotes/origin/release/$1" HEAD
 }
@@ -66,9 +77,9 @@ git -C "$fixture" tag --delete v2.0.0 >/dev/null
 GIT_COMMITTER_DATE=$expired git -C "$fixture" commit --quiet --allow-empty --message old
 git -C "$fixture" tag v2.0.0
 assert_lines 'lightweight major tag keeps the previous major' '["2.0","1.0"]'
-# The extra support is announced, so the tag gets fixed.
-warning=$(<"$errors")
-if [[ $warning != '::warning::v2.0.0 is a lightweight tag'* ]]; then
-	printf 'lightweight major tag: want a warning, got %s\n' "${warning:-nothing}" >&2
-	exit 1
-fi
+assert_warning 'lightweight major tag'
+# A major first released after vN.0.0 has no release date either.
+git -C "$fixture" tag --delete v2.0.0 >/dev/null
+tag_at v2.0.1 "$expired"
+assert_lines 'major without its .0.0 tag keeps the previous major' '["2.0","1.0"]'
+assert_warning 'major without its .0.0 tag'

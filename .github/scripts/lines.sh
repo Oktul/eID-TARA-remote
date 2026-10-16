@@ -42,19 +42,19 @@ lines=("$(newest_minor "$major")")
 
 previous=$(awk -v m="$major" '$1 < m' <<<"$majors" | tail -n 1)
 if [[ -n $previous ]]; then
-	# The window starts at the vN.0.0 tagger date (PLAN.md §12). A lightweight
-	# tag has none, and its commit's date can be months older than the
-	# release, so without a tagger date the previous major is kept rather
-	# than dropped early. stdout carries the JSON, so the warning goes to
-	# stderr.
+	# The window starts at the vN.0.0 tagger date (PLAN.md §12). A missing or
+	# lightweight tag has none, and a lightweight tag's commit date can be
+	# months older than the release, so without a tagger date the previous
+	# major is kept rather than dropped early, and the warning says so.
+	# stdout carries the JSON, so the warning goes to stderr.
 	created=$(git for-each-ref --format='%(taggerdate:unix)' "refs/tags/v$major.0.0")
 	keep=true
 	if [[ -n $created ]]; then
 		start=$(date -u -d "@$created" '+%Y-%m-%d %H:%M:%S')
 		end=$(date -u -d "$start UTC next year" '+%s')
 		(($(date -u '+%s') < end)) || keep=false
-	elif git rev-parse --quiet --verify "refs/tags/v$major.0.0" >/dev/null; then
-		printf '::warning::%s\n' "v$major.0.0 is a lightweight tag, so it has no release date: major $previous stays supported until v$major.0.0 is an annotated tag (PLAN.md §12)" >&2
+	else
+		printf '::warning::%s\n' "v$major.0.0 is missing or a lightweight tag, so it has no release date: major $previous stays supported until v$major.0.0 is an annotated tag (PLAN.md §12)" >&2
 	fi
 	if [[ $keep == true ]]; then
 		lines+=("$(newest_minor "$previous")")

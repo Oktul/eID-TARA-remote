@@ -802,11 +802,11 @@ promotes unreleased work from `main` into a patch release.
     Likewise, only tagged lines choose the current and previous major, so
     an unreleased future major ends no support (2026-10-16).
   - Release tags are annotated (`git tag -a`; `go-patch.sh` annotates its
-    own), and `release.sh check-ref` refuses a lightweight one before
-    anything is built. The previous major's window starts at the `vN.0.0`
-    tagger date; a lightweight tag carries only its commit's date, so
-    `lines.sh` keeps that major, with a warning, until the tag is annotated
-    (2026-10-16).
+    own), and `release.sh check-ref` refuses a lightweight one before the
+    release build. The previous major's window starts at the `vN.0.0`
+    tagger date. A lightweight tag carries only its commit's date, so while
+    `vN.0.0` is missing or lightweight, `lines.sh` keeps the previous major
+    and warns (owner, 2026-10-16).
   - The Go-minor job opens its pull request even when an earlier run pushed
     the branch but failed to open one.
   - Report jobs hold `contents: read` and `issues: write`; the publish job
@@ -879,7 +879,7 @@ promotes unreleased work from `main` into a patch release.
 - **Support policy** (`docs/SUPPORT.md`, V-5, M-2):
   - the newest minor release of the current major is supported, and the
     previous major's newest minor for 12 months after a new major, counted
-    from its annotated `vN.0.0` tag (2026-10-16). Publish the supported
+    from its annotated `vN.0.0` tag (owner, 2026-10-16). Publish the supported
     branches and exact end-of-support dates in `SUPPORT.md`;
   - a rebuild at least once a year; a Go patch release automatically within
     a day of Go publishing it; and within 7 days of a reachable critical or
@@ -1178,6 +1178,8 @@ not require annotated tags or define another authoritative release-date
 source. This finding is reported rather than fixed under `AGENTS.md`:
 the owner must choose that source or a tag requirement before the support
 automation is accepted. No design decision or disagreement is recorded.
+Decided by the owner on 2026-10-16: `taggerdate`, annotated release tags,
+and a warning while `vN.0.0` has no tagger date (§12).
 
 Final local validation of the packaging review fixes (2026-10-16):
 
@@ -1249,10 +1251,11 @@ then superseded.
 has a case that fails without it:
 
 - Release dates: `lines.sh` reads `taggerdate`, so a lightweight `vN.0.0`
-  keeps the previous major and warns; `release.sh check-ref` refuses
-  lightweight release tags (§12). `lines-test.sh` and the new
-  `release-test.sh` cover both. That release.yml's checkout keeps tag
-  objects (`fetch-depth: 0`) is to be confirmed by the first release (§14).
+  or a missing one keeps the previous major and warns;
+  `release.sh check-ref` refuses lightweight release tags (§12).
+  `lines-test.sh` and the new `release-test.sh` cover both. The pinned `actions/checkout` fetches
+  `+refs/tags/*:refs/tags/*` for a commit with `fetch-depth: 0`, so
+  check-ref sees tag objects (its source, read 2026-10-16).
 - Off-branch releases: `go-patch.sh prepare` now opens the "not on the
   branch" issue also when none of a line's release tags is on its branch,
   instead of a notice, as §12 requires. The new `go-patch-test.sh` runs
