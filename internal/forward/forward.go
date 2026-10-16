@@ -206,6 +206,11 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 		// Only an Upstream that did not come from ParseUpstream gets here.
 		return nil, ErrUnreachable
 	}
+	// NewRequest adds GetBody for bytes.Reader. PLAN.md §5 forbids a replay
+	// callback for token POSTs, including transport recovery before any write.
+	if route.Method == http.MethodPost {
+		req.GetBody = nil
+	}
 	req.Header = f.requestHeader(in)
 
 	resp, err := f.client.Do(req)

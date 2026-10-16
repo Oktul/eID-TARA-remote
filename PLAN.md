@@ -1117,6 +1117,11 @@ as separate commits, alongside the Phase 2 review.
   deadline. Declared/chunked fixtures also verify keep-alive after a full
   forwarded-body read. All five required Go checks pass, including Linux
   race tests; no vulnerabilities are reported.
+- Carried the Phase 1 removal of token POST replay callbacks (§5).
+  Transport-boundary fixtures verify that nonempty token POSTs have no
+  replay callback; existing delivered-but-lost-response coverage remains.
+  All five required Go checks pass, including Linux race tests; no
+  vulnerabilities are reported.
 
 Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
 GitHub and Codex's review. Phase 2 also needs its release verifications

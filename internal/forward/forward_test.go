@@ -819,6 +819,27 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// PLAN.md §5 forbids offering a token POST body for replay, even though Go
+// currently requires an idempotency header to retry after possible delivery.
+func TestTokenBodyHasNoReplayCallback(t *testing.T) {
+	f := newForwarder(t, "https://provider.example", nil)
+	f.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.GetBody != nil {
+			t.Error("token request exposes a body replay callback")
+		}
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != tokenBody || r.ContentLength != int64(len(tokenBody)) {
+			t.Errorf("got body %q length %d, want original token body and length", b, r.ContentLength)
+		}
+		return nil, errors.New("synthetic upstream failure")
+	})
+	_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+	wantErr(t, err, ErrUnreachable)
+}
+
 // inMemoryForwarder returns a Forwarder whose upstream is s on httptest's
 // in-memory network, so testing/synctest controls every clock involved. The
 // test server's dialer also does the TLS handshake with its own settings;
