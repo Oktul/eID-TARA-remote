@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"eid-forge-remote/internal/config"
+	"eid-forge-remote/internal/server"
 )
 
 // TestSlowBodyStillGetsUpstreamAnswer proves that the write deadline
@@ -70,7 +71,7 @@ func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
 		t.Skip("waits past the server's write timeout on the real clock")
 	}
 	const upstreamTimeout = 100 * time.Millisecond
-	r := newRelay(t, relayOptions{run: true, maxRequestBytes: 1024, env: map[string]string{
+	r := newRelay(t, relayOptions{run: true, env: map[string]string{
 		"RELAY_UPSTREAM_TIMEOUT": upstreamTimeout.String(),
 	}})
 	overrunDelay := upstreamTimeout + config.WriteTimeoutMargin + 300*time.Millisecond
@@ -83,7 +84,7 @@ func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
 	if err := conn.SetDeadline(time.Now().Add(overrunDelay + waitTimeout)); err != nil {
 		t.Fatal(err)
 	}
-	first, rest := strings.Repeat("a", 512), strings.Repeat("a", 1024)
+	first, rest := strings.Repeat("a", server.MaxRequestBytes/2), strings.Repeat("a", server.MaxRequestBytes)
 	if _, err := fmt.Fprintf(conn, "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
 		"Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n", validFIT(t), len(first), first); err != nil {
 		t.Fatal(err)
@@ -116,7 +117,7 @@ func TestLateOverrunStillGetsBodyTooLarge(t *testing.T) {
 // reads up to 256 KiB of the body before it closes the socket, bounded by
 // ReadTimeout; closing sooner could reset the connection and lose the 413.)
 func TestDeclaredOversizedBodyAnsweredAtOnce(t *testing.T) {
-	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
+	r := newRelay(t, relayOptions{})
 	conn, err := net.Dial("tcp", r.addr)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +127,7 @@ func TestDeclaredOversizedBodyAnsweredAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fmt.Fprintf(conn, "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
-		"Content-Length: 2048\r\n\r\n", validFIT(t)); err != nil {
+		"Content-Length: %d\r\n\r\n", validFIT(t), server.MaxRequestBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)

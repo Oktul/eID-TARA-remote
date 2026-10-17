@@ -28,7 +28,7 @@ var (
 	// a status below 200 or one whose header is over UpstreamMaxHeaderBytes.
 	ErrUnreachable = errors.New("upstream unreachable")
 	// ErrTooLarge is 502 upstream_too_large: the upstream body is over
-	// Options.MaxResponseBytes.
+	// MaxResponseBytes.
 	ErrTooLarge = errors.New("upstream response too large")
 	// ErrTimeout is 504 upstream_timeout: Options.Timeout, or a deadline
 	// on the caller's context, ran out before the answer was complete.
@@ -43,7 +43,7 @@ const (
 	// whose answers are a few KB (PLAN.md D8, owner, 2026-10-16).
 	MaxResponseBytes = 64 << 10
 	// UpstreamMaxHeaderBytes bounds the upstream's response header, which is
-	// read before Options.MaxResponseBytes applies. Go's default is 10 MiB,
+	// read before MaxResponseBytes applies. Go's default is 10 MiB,
 	// far beyond a token response (PLAN.md R-4).
 	UpstreamMaxHeaderBytes = 32 << 10
 	// MaxIdleConnsPerHost is how many idle upstream connections are kept
@@ -78,10 +78,6 @@ type Options struct {
 	// Timeout bounds the whole upstream call, body read included
 	// (RELAY_UPSTREAM_TIMEOUT, PLAN.md R-2).
 	Timeout time.Duration
-	// MaxResponseBytes bounds the upstream body: the relay passes the
-	// MaxResponseBytes constant, tests a smaller limit. Zero refuses every
-	// non-empty answer.
-	MaxResponseBytes int64
 }
 
 // Forwarder sends allowed requests to the upstream. It does not change
@@ -90,13 +86,12 @@ type Forwarder struct {
 	client *http.Client
 	// dialer is the one the client's transport dials with, kept so that a
 	// test can check the timeouts that DialContext hides (PLAN.md §5).
-	dialer           *net.Dialer
-	upstream         Upstream
-	routes           []Route
-	credential       *Credential
-	responseHeaders  []string // canonical
-	timeout          time.Duration
-	maxResponseBytes int64
+	dialer          *net.Dialer
+	upstream        Upstream
+	routes          []Route
+	credential      *Credential
+	responseHeaders []string // canonical
+	timeout         time.Duration
 }
 
 // New returns a Forwarder with its own upstream client (PLAN.md §5).
@@ -128,13 +123,12 @@ func New(o Options) *Forwarder {
 			// destination the configuration did not name.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		dialer:           dialer,
-		upstream:         o.Upstream,
-		routes:           o.Routes,
-		credential:       o.Credential,
-		responseHeaders:  o.ResponseHeaders,
-		timeout:          o.Timeout,
-		maxResponseBytes: o.MaxResponseBytes,
+		dialer:          dialer,
+		upstream:        o.Upstream,
+		routes:          o.Routes,
+		credential:      o.Credential,
+		responseHeaders: o.ResponseHeaders,
+		timeout:         o.Timeout,
 	}
 }
 
@@ -154,7 +148,7 @@ func Match(routes []Route, method, target string) (Route, bool) {
 }
 
 // Response is a complete upstream answer. Forward reads it in full, within
-// Options.MaxResponseBytes, before the relay sends anything, so an oversize
+// MaxResponseBytes, before the relay sends anything, so an oversize
 // answer still becomes a clean 502 (PLAN.md §5, R-4).
 type Response struct {
 	Status int         // the upstream status, for Relay-Upstream-Status (D7)
@@ -221,16 +215,16 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 	if resp.StatusCode < 200 {
 		return nil, ErrUnreachable
 	}
-	if resp.ContentLength > f.maxResponseBytes {
+	if resp.ContentLength > MaxResponseBytes {
 		return nil, ErrTooLarge
 	}
 	// One byte more than the limit tells an oversize body from one that
 	// fits exactly.
-	b, err := io.ReadAll(io.LimitReader(resp.Body, f.maxResponseBytes+1))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
 	if err != nil {
 		return nil, classify(ctx)
 	}
-	if int64(len(b)) > f.maxResponseBytes {
+	if len(b) > MaxResponseBytes {
 		return nil, ErrTooLarge
 	}
 	header := make(http.Header, len(f.responseHeaders))

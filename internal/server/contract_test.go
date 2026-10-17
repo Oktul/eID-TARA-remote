@@ -57,8 +57,8 @@ func TestContractRelayErrors(t *testing.T) {
 			return r.do(t, "POST", "/oidc/other", bearer(validFIT(t)), nil)
 		}},
 		{"body_too_large", 413, "body_too_large", true, func(t *testing.T) reply {
-			r := newRelay(t, relayOptions{maxRequestBytes: 16})
-			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), strings.NewReader(strings.Repeat("a", 17)))
+			r := newRelay(t, relayOptions{})
+			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), strings.NewReader(strings.Repeat("a", 65537)))
 		}},
 		{"internal_error", 500, "internal_error", true, func(t *testing.T) reply {
 			r := newRelay(t, relayOptions{nilForwarder: true})
@@ -69,7 +69,9 @@ func TestContractRelayErrors(t *testing.T) {
 			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil)
 		}},
 		{"upstream_too_large", 502, "upstream_too_large", true, func(t *testing.T) reply {
-			r := newRelay(t, relayOptions{maxResponseBytes: 16})
+			r := newRelay(t, relayOptions{upstream: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(strings.Repeat("a", 65537))) // the relay checks the body size
+			}})
 			return r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil)
 		}},
 		{"not_ready", 503, "not_ready", false, func(t *testing.T) reply {
@@ -83,18 +85,22 @@ func TestContractRelayErrors(t *testing.T) {
 		{"too_busy", 503, "too_busy", false, func(t *testing.T) reply {
 			g := newGate()
 			defer g.release()
-			r := newRelay(t, relayOptions{maxConcurrent: 1, upstream: g.handler})
+			r := newRelay(t, relayOptions{upstream: g.handler})
 			fit := validFIT(t)
-			held := make(chan error, 1)
-			go func() {
-				_, err := r.send(context.Background(), "POST", "/oidc/token", bearer(fit), nil)
-				held <- err
-			}()
-			g.waitEntered(t, 1)
+			held := make(chan error, 50)
+			for range 50 {
+				go func() {
+					_, err := r.send(context.Background(), "POST", "/oidc/token", bearer(fit), nil)
+					held <- err
+				}()
+			}
+			g.waitEntered(t, 50)
 			got := r.do(t, "POST", "/oidc/token", bearer(fit), nil)
 			g.release()
-			if err := <-held; err != nil {
-				t.Errorf("held request: %v", err)
+			for range 50 {
+				if err := <-held; err != nil {
+					t.Errorf("held request: %v", err)
+				}
 			}
 			return got
 		}},

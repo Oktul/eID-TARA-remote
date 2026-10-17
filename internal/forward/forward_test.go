@@ -116,12 +116,11 @@ func newForwarder(t *testing.T, base string, edit func(*Options)) *Forwarder {
 		t.Fatalf("ParseUpstream: %v", err)
 	}
 	o := Options{
-		Upstream:         u,
-		Routes:           []Route{tokenRoute},
-		ResponseHeaders:  []string{"Content-Type", "Cache-Control", "Pragma"},
-		RootCAs:          trustPool(t),
-		Timeout:          testTimeout,
-		MaxResponseBytes: 64 << 10,
+		Upstream:        u,
+		Routes:          []Route{tokenRoute},
+		ResponseHeaders: []string{"Content-Type", "Cache-Control", "Pragma"},
+		RootCAs:         trustPool(t),
+		Timeout:         testTimeout,
 	}
 	if edit != nil {
 		edit(&o)
@@ -602,7 +601,7 @@ func TestForwardPassesCompressedBodyUnchanged(t *testing.T) {
 }
 
 func TestForwardResponseSizeLimit(t *testing.T) {
-	const limit = 16
+	const limit = 65536
 	atLimit := strings.Repeat("a", limit)
 	tests := []struct {
 		name    string
@@ -630,7 +629,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 				_ = http.NewResponseController(w).Flush()
 				_, _ = io.WriteString(w, tt.body[1:])
 			})
-			f := newForwarder(t, s.URL, func(o *Options) { o.MaxResponseBytes = limit })
+			f := newForwarder(t, s.URL, nil)
 			resp, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
 			wantErr(t, err, tt.want)
 			if err == nil && string(resp.Body) != tt.body {
@@ -650,7 +649,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 				}
 			}
 		})
-		f := newForwarder(t, s.URL, func(o *Options) { o.MaxResponseBytes = limit })
+		f := newForwarder(t, s.URL, nil)
 		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
 		wantErr(t, err, ErrTooLarge)
 	})
@@ -666,7 +665,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 			_ = http.NewResponseController(w).Flush()
 			<-r.Context().Done() // until the relay drops the connection
 		})
-		f := newForwarder(t, s.URL, func(o *Options) { o.MaxResponseBytes = limit })
+		f := newForwarder(t, s.URL, nil)
 		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
 		wantErr(t, err, ErrTooLarge)
 	})
@@ -820,7 +819,7 @@ func inMemoryForwarder(t *testing.T, s *httptest.Server, timeout time.Duration) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: timeout, MaxResponseBytes: 64 << 10})
+	f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: timeout})
 	f.client.Transport.(*http.Transport).DialTLSContext = s.Client().Transport.(*http.Transport).DialTLSContext
 	t.Cleanup(f.client.CloseIdleConnections)
 	return f
@@ -885,7 +884,7 @@ func TestForwardClosesSilentHandshake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: time.Second, MaxResponseBytes: 64 << 10})
+		f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: time.Second})
 		tr := f.client.Transport.(*http.Transport)
 		// The pipe stands for the upstream, whatever proxy the test
 		// environment sets.
@@ -1179,7 +1178,7 @@ func TestForwardInvalidUpstreamFailsClosed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New(Options{Upstream: tt.upstream, Routes: []Route{tokenRoute}, Timeout: testTimeout, MaxResponseBytes: 1})
+			f := New(Options{Upstream: tt.upstream, Routes: []Route{tokenRoute}, Timeout: testTimeout})
 			_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
 			wantErr(t, err, ErrUnreachable)
 		})

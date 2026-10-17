@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -143,22 +144,8 @@ func hex4(raw []byte, i int) (rune, bool) {
 	if i+4 > len(raw) {
 		return 0, false
 	}
-	var r rune
-	for _, c := range raw[i : i+4] {
-		var v byte
-		switch {
-		case c >= '0' && c <= '9':
-			v = c - '0'
-		case c >= 'a' && c <= 'f':
-			v = c - 'a' + 10
-		case c >= 'A' && c <= 'F':
-			v = c - 'A' + 10
-		default:
-			return 0, false
-		}
-		r = r<<4 | rune(v)
-	}
-	return r, true
+	n, err := strconv.ParseUint(string(raw[i:i+4]), 16, 16)
+	return rune(n), err == nil
 }
 
 // str returns member name as a string. A missing member gives present ==

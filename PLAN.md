@@ -934,7 +934,7 @@ promotes unreleased work from `main` into a patch release.
     a longer run (at least an hour) happens before v1.0.0. The same applies
     to the other parsers (2026-10-15): strict JSON, NumericDate (against an
     exact `math/big` oracle), JWKS, routes, paths, the upstream URL, the
-    credential header, setting lists, CA bundles, digits and unknown names,
+    credential header, setting lists, CA bundles and unknown names,
     each with a seed corpus in its package's `testdata/fuzz/`.
   - **Keys:** unreachable at startup, backoff, rotation and removed keys,
     last-good snapshots kept only to their maximum age, readiness expiry
@@ -1145,6 +1145,19 @@ integration, tags and pushes remain unauthorized.
 - [ ] Record Phase 0 approval and all exit-gate results in §14.
 - [ ] Record Phase 1 contract/source checks and Phase 2 release failure tests.
 - [ ] Record measured acceptance results, soak and security review before v1.
+
+**Simplification follow-up (owner, 2026-10-17).** The body and concurrency
+limits are constants throughout the implementation, with no constructor
+options or per-instance copies solely for tests. Failure fixtures now use
+the actual 64 KiB limits and 50 concurrent requests. Port and Unicode-escape
+hex digits use bounded `strconv.ParseUint` rather than local parsers; port
+rejections and strict Unicode tests remain. The obsolete decimal-parser
+fuzzer and its seeds were removed with that parser.
+
+`gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
+and `govulncheck ./...` pass in order on this change; no vulnerabilities
+found. Race tests use the pinned Go 1.27.2 Linux builder. No protocol or
+setting changes are part of this cleanup.
 
 **Code-convention review fixes (owner-approved, 2026-10-15):**
 

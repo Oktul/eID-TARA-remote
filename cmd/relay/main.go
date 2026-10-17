@@ -128,13 +128,12 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		ClockSkew:       cfg.ClockSkew,
 	}, keys)
 	fwd := forward.New(forward.Options{
-		Upstream:         cfg.Upstream,
-		Routes:           cfg.Routes,
-		Credential:       cfg.Credential,
-		ResponseHeaders:  cfg.ResponseHeaders,
-		RootCAs:          cfg.UpstreamCAs,
-		Timeout:          cfg.UpstreamTimeout,
-		MaxResponseBytes: forward.MaxResponseBytes,
+		Upstream:        cfg.Upstream,
+		Routes:          cfg.Routes,
+		Credential:      cfg.Credential,
+		ResponseHeaders: cfg.ResponseHeaders,
+		RootCAs:         cfg.UpstreamCAs,
+		Timeout:         cfg.UpstreamTimeout,
 	})
 	srv := server.New(server.Options{
 		Config:    cfg,
@@ -143,9 +142,6 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		Forwarder: fwd,
 		Logger:    logger,
 		Version:   version,
-
-		MaxRequestBytes: server.MaxRequestBytes,
-		MaxConcurrent:   server.MaxConcurrent,
 	})
 
 	var lc net.ListenConfig

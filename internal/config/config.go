@@ -589,27 +589,12 @@ func (l *loader) responseHeaders() []string {
 
 func (l *loader) port() int {
 	const name = "RELAY_PORT"
-	n, ok := parseDigits(l.optional(name, defaultPort))
-	if !ok || n < 1 || n > forward.MaxPort {
+	n, err := strconv.ParseUint(l.optional(name, defaultPort), 10, 16)
+	if err != nil || n == 0 {
 		l.fail(name, "want a port number from 1 to "+strconv.Itoa(forward.MaxPort))
 		return 0
 	}
 	return int(n)
-}
-
-// parseDigits parses a decimal integer of ASCII digits only: strconv alone
-// also accepts a sign, and its errors quote the input.
-func parseDigits(s string) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return 0, false
-		}
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	return n, err == nil
 }
 
 // duration parses a time.ParseDuration setting such as "10s". positive

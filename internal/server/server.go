@@ -104,10 +104,6 @@ type Options struct {
 	Forwarder *forward.Forwarder
 	Logger    *slog.Logger
 	Version   string // the release, sent as Relay-Version
-	// MaxRequestBytes and MaxConcurrent are the constants of the same name;
-	// tests pass smaller limits. Zero refuses every body or every request.
-	MaxRequestBytes int64
-	MaxConcurrent   int
 }
 
 // Server is the relay's http.Handler and its listener lifecycle.
@@ -120,7 +116,6 @@ type Server struct {
 	version  string
 	info     []byte // the /relay/v1/info body, fixed at startup
 
-	maxRequestBytes int64
 	// slots is the forwarding semaphore (PLAN.md §6 R-5). Health checks
 	// bypass it, so a full relay still answers its probes.
 	slots chan struct{}
@@ -159,9 +154,7 @@ func New(o Options) *Server {
 		log:      o.Logger,
 		version:  o.Version,
 		info:     bytes.TrimSuffix(info.Bytes(), []byte("\n")),
-
-		maxRequestBytes: o.MaxRequestBytes,
-		slots:           make(chan struct{}, o.MaxConcurrent),
+		slots:    make(chan struct{}, MaxConcurrent),
 	}
 }
 
@@ -272,7 +265,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	rec.route = route.String()
 
 	// Step 4: the body, bounded (R-4).
-	body, err := readBody(w, r, s.maxRequestBytes)
+	body, err := readBody(w, r)
 	// Restart the write deadline, which net/http started at the request
 	// header, whether the body was read or refused: a slow body or key wait
 	// must not eat the answer's time, or a token exchange could succeed
@@ -320,20 +313,20 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	s.writeUpstream(w, resp)
 }
 
-// readBody reads the request body up to limit. http.MaxBytesReader, unlike a
+// readBody reads the request body up to MaxRequestBytes. http.MaxBytesReader, unlike a
 // plain io.LimitReader, also tells net/http that the limit was hit, so it
 // half-closes the connection after the 413 and waits briefly: bytes the
 // client is still sending cannot reset the connection before it has read
 // the 413. Only net/http's own ResponseWriter takes that signal, so it gets
 // that one, not the statusWriter.
-func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
-	if r.ContentLength > limit {
-		return nil, &http.MaxBytesError{Limit: limit}
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	if r.ContentLength > MaxRequestBytes {
+		return nil, &http.MaxBytesError{Limit: MaxRequestBytes}
 	}
 	if sw, ok := w.(*statusWriter); ok {
 		w = sw.ResponseWriter
 	}
-	return io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBytes))
 }
 
 // writeUpstream sends an upstream answer as PLAN.md D7 requires: always 200,

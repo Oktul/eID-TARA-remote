@@ -28,10 +28,10 @@ import (
 // routes, and the route before the body. No rejected request reaches the
 // upstream.
 func TestCheckOrder(t *testing.T) {
-	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
+	r := newRelay(t, relayOptions{})
 	fit := validFIT(t)
 	otherKey := signFIT(t, testKeys().other, fitClaims())
-	big := strings.Repeat("a", 4096)
+	big := strings.Repeat("a", server.MaxRequestBytes+1)
 	cases := []struct {
 		name      string
 		method    string
@@ -78,10 +78,10 @@ func TestCheckOrder(t *testing.T) {
 func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	g := newGate()
 	defer g.release()
-	r := newRelay(t, relayOptions{maxConcurrent: 2, upstream: g.handler})
+	r := newRelay(t, relayOptions{upstream: g.handler})
 	fit := validFIT(t)
-	held := make(chan error, 2)
-	for range 2 {
+	held := make(chan error, server.MaxConcurrent)
+	for range server.MaxConcurrent {
 		go func() {
 			got, err := r.send(context.Background(), "POST", "/oidc/token", bearer(fit), nil)
 			if err == nil && got.status != http.StatusOK {
@@ -90,7 +90,7 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 			held <- err
 		}()
 	}
-	g.waitEntered(t, 2)
+	g.waitEntered(t, server.MaxConcurrent)
 
 	// A health check that needed a slot would wait for the gate and time out.
 	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
@@ -98,21 +98,21 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "too_busy", false)
 	expectRelayError(t, r.do(t, "POST", "/oidc/token", nil, nil), 503, "too_busy", false)
 	expectRelayError(t, r.do(t, "GET", "/relay/v1/info", bearer(fit), nil), 503, "too_busy", false)
-	if n := r.upstreamHits.Load(); n != 2 {
-		t.Errorf("upstream calls = %d, want only the 2 held ones", n)
+	if n := r.upstreamHits.Load(); n != server.MaxConcurrent {
+		t.Errorf("upstream calls = %d, want only the %d held ones", n, server.MaxConcurrent)
 	}
 	if n := r.jwksHits.Load(); n != 1 {
 		t.Errorf("JWKS fetches = %d, want only the startup fetch", n)
 	}
 
 	g.release()
-	for range 2 {
+	for range server.MaxConcurrent {
 		if err := <-held; err != nil {
 			t.Errorf("held request: %v", err)
 		}
 	}
 	// A slot is freed before its request's log line is written.
-	r.logs.waitRequests(t, 7)
+	r.logs.waitRequests(t, server.MaxConcurrent+5)
 	if got := r.do(t, "POST", "/oidc/token", bearer(fit), nil); got.status != http.StatusOK {
 		t.Errorf("after release: status %d, want 200", got.status)
 	}
@@ -230,20 +230,21 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 			"RELAY_JWKS_REFRESH": "40ms",
 			"RELAY_JWKS_MAX_AGE": "400ms",
 		},
-		maxConcurrent: 1,
-		upstream:      g.handler,
-		jwks:          jwks,
+		upstream: g.handler,
+		jwks:     jwks,
 	})
 	fit := validFIT(t)
-	held := make(chan error, 1)
-	go func() {
-		got, err := r.send(context.Background(), "POST", "/oidc/token", bearer(fit), nil)
-		if err == nil && got.status != http.StatusOK {
-			err = fmt.Errorf("status %d", got.status)
-		}
-		held <- err
-	}()
-	g.waitEntered(t, 1)
+	held := make(chan error, server.MaxConcurrent)
+	for range server.MaxConcurrent {
+		go func() {
+			got, err := r.send(context.Background(), "POST", "/oidc/token", bearer(fit), nil)
+			if err == nil && got.status != http.StatusOK {
+				err = fmt.Errorf("status %d", got.status)
+			}
+			held <- err
+		}()
+	}
+	g.waitEntered(t, server.MaxConcurrent)
 	failing.Store(true)
 	waitUntil(t, "the key snapshot to expire", func() bool { return !r.keys.Ready() })
 
@@ -252,15 +253,17 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
 
 	g.release()
-	if err := <-held; err != nil {
-		t.Errorf("request admitted before expiry: %v", err)
+	for range server.MaxConcurrent {
+		if err := <-held; err != nil {
+			t.Errorf("request admitted before expiry: %v", err)
+		}
 	}
-	r.logs.waitRequests(t, 4) // the held request has freed its slot
+	r.logs.waitRequests(t, server.MaxConcurrent+3) // the held requests have freed their slots
 	for _, h := range []http.Header{bearer(fit), nil, bearer("not-a-jws")} {
 		expectRelayError(t, r.do(t, "POST", "/oidc/token", h, nil), 503, "not_ready", false)
 	}
-	if n := r.upstreamHits.Load(); n != 1 {
-		t.Errorf("upstream calls = %d, want only the one admitted before expiry", n)
+	if n := r.upstreamHits.Load(); n != server.MaxConcurrent {
+		t.Errorf("upstream calls = %d, want only the %d admitted before expiry", n, server.MaxConcurrent)
 	}
 }
 
@@ -337,7 +340,6 @@ func TestRequestBodyLimit(t *testing.T) {
 	var mu sync.Mutex
 	var received []int
 	r := newRelay(t, relayOptions{
-		maxRequestBytes: 1024,
 		upstream: func(w http.ResponseWriter, req *http.Request) {
 			b, _ := io.ReadAll(req.Body) // the length is what the test checks
 			mu.Lock()
@@ -348,16 +350,15 @@ func TestRequestBodyLimit(t *testing.T) {
 	})
 	fit := validFIT(t)
 	cases := []struct {
-		name    string
-		body    io.Reader
-		tooBig  bool
-		ofLimit int
+		name   string
+		body   io.Reader
+		tooBig bool
 	}{
-		{"content_length_at_limit", strings.NewReader(strings.Repeat("a", 1024)), false, 1024},
-		{"content_length_over_limit", strings.NewReader(strings.Repeat("a", 1025)), true, 1025},
-		{"chunked_at_limit", opaqueReader{strings.NewReader(strings.Repeat("a", 1024))}, false, 1024},
-		{"chunked_over_limit", opaqueReader{strings.NewReader(strings.Repeat("a", 1025))}, true, 1025},
-		{"chunked_far_over_limit", opaqueReader{strings.NewReader(strings.Repeat("a", 64<<10))}, true, 64 << 10},
+		{"content_length_at_limit", strings.NewReader(strings.Repeat("a", server.MaxRequestBytes)), false},
+		{"content_length_over_limit", strings.NewReader(strings.Repeat("a", server.MaxRequestBytes+1)), true},
+		{"chunked_at_limit", opaqueReader{strings.NewReader(strings.Repeat("a", server.MaxRequestBytes))}, false},
+		{"chunked_over_limit", opaqueReader{strings.NewReader(strings.Repeat("a", server.MaxRequestBytes+1))}, true},
+		{"chunked_far_over_limit", opaqueReader{strings.NewReader(strings.Repeat("a", 2*server.MaxRequestBytes))}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -371,7 +372,7 @@ func TestRequestBodyLimit(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !slices.Equal(received, []int{1024, 1024}) {
+	if !slices.Equal(received, []int{server.MaxRequestBytes, server.MaxRequestBytes}) {
 		t.Errorf("upstream received bodies of %v bytes, want only the two at the limit", received)
 	}
 }
@@ -381,7 +382,7 @@ func TestRequestBodyLimit(t *testing.T) {
 // connection instead of keeping it for another request (PLAN.md §6, R-4).
 // The request asks for keep-alive, so the close is the relay's own.
 func TestOversizedChunkedBodyClosesConnection(t *testing.T) {
-	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
+	r := newRelay(t, relayOptions{})
 	conn, err := net.Dial("tcp", r.addr)
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +391,7 @@ func TestOversizedChunkedBodyClosesConnection(t *testing.T) {
 	if err := conn.SetDeadline(time.Now().Add(waitTimeout)); err != nil {
 		t.Fatal(err)
 	}
-	body := strings.Repeat("a", 2048)
+	body := strings.Repeat("a", server.MaxRequestBytes+1)
 	// A keep-alive request: nothing but the relay asks for the close.
 	if _, err := fmt.Fprintf(conn, "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
 		"Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n0\r\n\r\n", validFIT(t), len(body), body); err != nil {
@@ -424,9 +425,9 @@ func TestOversizedChunkedBodyClosesConnection(t *testing.T) {
 // half-closes and waits first only when http.MaxBytesReader reaches its own
 // ResponseWriter (readBody).
 func TestOversizedBodyAnswerSurvivesPipelinedRequest(t *testing.T) {
-	r := newRelay(t, relayOptions{maxRequestBytes: 1024})
+	r := newRelay(t, relayOptions{})
 	fit := validFIT(t)
-	body, next := strings.Repeat("a", 2048), strings.Repeat("b", 1<<20)
+	body, next := strings.Repeat("a", server.MaxRequestBytes+1), strings.Repeat("b", 1<<20)
 	request := fmt.Sprintf("POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
 		"Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n0\r\n\r\n", fit, len(body), body) +
 		fmt.Sprintf("POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nAuthorization: Bearer %s\r\n"+
@@ -577,7 +578,7 @@ func hijackedUpstream(w http.ResponseWriter, r *http.Request) {
 // transport's error text, which names addresses, certificates and upstream
 // bytes, never reaches the log (§10).
 func TestUpstreamFailures(t *testing.T) {
-	over := strings.Repeat("a", 1025)
+	over := strings.Repeat("a", 65537)
 	cases := []struct {
 		name string
 		opts relayOptions
@@ -587,6 +588,7 @@ func TestUpstreamFailures(t *testing.T) {
 		{"untrusted_certificate", relayOptions{untrustedUpstream: true}, "upstream_unreachable"},
 		{"malformed_response", relayOptions{upstream: hijackedUpstream}, "upstream_unreachable"},
 		{"content_length_over_limit", relayOptions{upstream: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Length", "65537")
 			_, _ = io.WriteString(w, over)
 		}}, "upstream_too_large"},
 		{"chunked_over_limit", relayOptions{upstream: func(w http.ResponseWriter, _ *http.Request) {
@@ -597,7 +599,6 @@ func TestUpstreamFailures(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			c.opts.maxResponseBytes = 1024
 			r := newRelay(t, c.opts)
 			expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil), 502, c.code, true)
 			line := r.logs.waitRequests(t, 1)[0]
@@ -617,13 +618,12 @@ func TestUpstreamFailures(t *testing.T) {
 		})
 	}
 	t.Run("at_limit", func(t *testing.T) {
-		at := over[:1024]
+		at := over[:65536]
 		r := newRelay(t, relayOptions{
-			maxResponseBytes: 1024,
-			upstream:         func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, at) },
+			upstream: func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, at) },
 		})
 		if got := r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil); got.status != http.StatusOK || got.body != at {
-			t.Errorf("got %d with %d bytes, want 200 with 1024", got.status, len(got.body))
+			t.Errorf("got %d with %d bytes, want 200 with 65536", got.status, len(got.body))
 		}
 	})
 }
@@ -983,7 +983,7 @@ func TestLogMethods(t *testing.T) {
 // TestRouteLoggedOnlyWhenMatched proves PLAN.md §10: route is the fixed
 // "unmatched" marker until a configured route or relay endpoint matches.
 func TestRouteLoggedOnlyWhenMatched(t *testing.T) {
-	r := newRelay(t, relayOptions{maxRequestBytes: 16})
+	r := newRelay(t, relayOptions{})
 	fit := validFIT(t)
 	cases := []struct {
 		name, method, target string
@@ -993,7 +993,7 @@ func TestRouteLoggedOnlyWhenMatched(t *testing.T) {
 	}{
 		{"invalid_token", "POST", "/oidc/token", nil, "", "unmatched"},
 		{"route_not_allowed", "POST", "/oidc/other", bearer(fit), "", "unmatched"},
-		{"body_too_large", "POST", "/oidc/token", bearer(fit), strings.Repeat("a", 17), "POST /oidc/token"},
+		{"body_too_large", "POST", "/oidc/token", bearer(fit), strings.Repeat("a", server.MaxRequestBytes+1), "POST /oidc/token"},
 		{"forwarded", "GET", "/oidc/keys", bearer(fit), "", "GET /oidc/keys"},
 		{"info", "GET", "/relay/v1/info", bearer(fit), "", "GET /relay/v1/info"},
 		{"readyz", "GET", "/readyz", nil, "", "GET /readyz"},

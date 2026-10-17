@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -101,19 +100,6 @@ func FuzzParseCAs(f *testing.F) {
 		// pem.Decode skips a damaged block to reach the next one.
 		if n := bytes.Count(data, []byte("-----BEGIN")); n != blocks {
 			t.Fatalf("accepted %d BEGIN lines but %d blocks", n, blocks)
-		}
-	})
-}
-
-// FuzzParseDigits checks that exactly the unsigned decimal numbers that fit
-// in an int64 parse, to their value (PLAN.md §8). strconv.ParseUint with base
-// 10 refuses signs, prefixes and underscores, so it is the reference.
-func FuzzParseDigits(f *testing.F) {
-	f.Fuzz(func(t *testing.T, s string) {
-		n, ok := config.ParseDigits(s)
-		want, err := strconv.ParseUint(s, 10, 63)
-		if ok != (err == nil) || ok && uint64(n) != want {
-			t.Fatalf("ParseDigits(%q) = %d, %v", s, n, ok)
 		}
 	})
 }
