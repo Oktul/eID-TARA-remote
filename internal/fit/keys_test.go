@@ -716,18 +716,3 @@ func TestCacheLogsNoKeyIDsOrErrorText(t *testing.T) {
 		}
 	})
 }
-
-func TestCacheRunTwicePanics(t *testing.T) {
-	pub := testPublicKeys()[0]
-	synctest.Test(t, func(t *testing.T) {
-		c, _ := startCache(t, newFakeJWKS(answerDoc(testJWKS(t, testJWK("k1", pub)))))
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel() // without the guard, the second Run returns at once
-		defer func() {
-			if recover() == nil {
-				t.Fatal("a second Run did not panic; two workers could fetch at once")
-			}
-		}()
-		c.Run(ctx)
-	})
-}

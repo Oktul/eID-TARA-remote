@@ -111,8 +111,7 @@ type Cache struct {
 	maxAge  time.Duration
 	logger  *slog.Logger
 
-	snap    atomic.Pointer[snapshot]
-	running atomic.Bool
+	snap atomic.Pointer[snapshot]
 	// wake asks Run for a fetch on behalf of unknown key IDs. With capacity
 	// one, a pending request stands for every caller that wants it.
 	wake chan struct{}
@@ -216,15 +215,12 @@ func fetchJWKS(jwksURL string, client *http.Client) func(context.Context) ([]byt
 	}
 }
 
-// Run is the refresh worker and the cache's only goroutine. The caller starts
-// it once at startup; it returns when ctx is done (PLAN.md §6, R-11). It
+// Run is the refresh worker and the cache's only goroutine. Start it exactly
+// once, at startup; it returns when ctx is done (PLAN.md §6, R-11). It
 // fetches at once, retries failures with exponential backoff, refreshes a
 // good snapshot every refresh interval and serves fetches that unknown key
 // IDs ask for. Network failures never stop it.
 func (c *Cache) Run(ctx context.Context) {
-	if !c.running.CompareAndSwap(false, true) {
-		panic("fit: Cache.Run called twice")
-	}
 	retry := JWKSRetryInitial
 	next := time.NewTimer(0)
 	defer next.Stop()
