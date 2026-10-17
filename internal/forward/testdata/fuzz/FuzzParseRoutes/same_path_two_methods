@@ -1,2 +1,0 @@
-go test fuzz v1
-string("GET /oidc/jwks,POST /oidc/jwks")

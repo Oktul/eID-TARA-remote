@@ -65,11 +65,7 @@ spec:
               value: "<from the admin page>"
             - name: RELAY_UPSTREAM_URL
               value: "<from the admin page>"
-            - name: RELAY_ROUTES
-              value: "<from the admin page>"
-            # For a provider without a relay-held credential, such as
-            # Authentigate, remove this variable, the volume and its mount,
-            # and secret.yaml (PLAN.md §5).
+            # TARA's Basic credential stays in the Secret (PLAN.md §5).
             - name: RELAY_UPSTREAM_AUTH_FILE
               value: /run/secrets/relay/upstream-auth
           volumeMounts:

@@ -128,12 +128,10 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		ClockSkew:       cfg.ClockSkew,
 	}, keys)
 	fwd := forward.New(forward.Options{
-		Upstream:        cfg.Upstream,
-		Routes:          cfg.Routes,
-		Credential:      cfg.Credential,
-		ResponseHeaders: cfg.ResponseHeaders,
-		RootCAs:         cfg.UpstreamCAs,
-		Timeout:         cfg.UpstreamTimeout,
+		Upstream:   cfg.Upstream,
+		Credential: cfg.Credential,
+		RootCAs:    cfg.UpstreamCAs,
+		Timeout:    cfg.UpstreamTimeout,
 	})
 	srv := server.New(server.Options{
 		Config:    cfg,

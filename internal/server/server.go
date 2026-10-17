@@ -8,7 +8,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -126,22 +125,13 @@ type Server struct {
 
 // New builds a Server. It starts nothing; Run serves.
 func New(o Options) *Server {
-	routes := make([]string, len(o.Config.Routes))
-	for i, r := range o.Config.Routes {
-		routes[i] = r.String()
-	}
-	// An Encoder without HTML escaping keeps a route such as "/a&b" byte for
-	// byte as configured; json.Marshal would write "\u0026".
-	var info bytes.Buffer
-	enc := json.NewEncoder(&info)
-	enc.SetEscapeHTML(false)
-	err := enc.Encode(struct {
+	info, err := json.Marshal(struct {
 		RelayVersion    string   `json:"relay_version"`
 		ProtocolVersion int      `json:"protocol_version"`
 		UpstreamURL     string   `json:"upstream_url"`
 		Routes          []string `json:"routes"`
 		CredentialSet   bool     `json:"credential_set"`
-	}{o.Version, ProtocolVersion, o.Config.Upstream.String(), routes, o.Config.Credential != nil})
+	}{o.Version, ProtocolVersion, o.Config.Upstream.String(), []string{forward.TokenRoute}, o.Config.Credential != nil})
 	if err != nil {
 		// Encoding strings, ints and a bool cannot fail.
 		panic("server: encode info: " + err.Error())
@@ -153,13 +143,13 @@ func New(o Options) *Server {
 		fwd:      o.Forwarder,
 		log:      o.Logger,
 		version:  o.Version,
-		info:     bytes.TrimSuffix(info.Bytes(), []byte("\n")),
+		info:     info,
 		slots:    make(chan struct{}, MaxConcurrent),
 	}
 }
 
 // record collects one request's log fields (PLAN.md §10). Every value is a
-// constant, a configured route or verified data.
+// constant or verified data.
 type record struct {
 	requestID      string
 	method         string
@@ -257,12 +247,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 		writeJSON(w, http.StatusOK, s.info)
 		return
 	}
-	route, ok := forward.Match(s.cfg.Routes, r.Method, r.RequestURI)
-	if !ok {
+	// Compare the raw request target, never a cleaned or decoded path.
+	if r.Method != http.MethodPost || r.RequestURI != forward.TokenPath {
 		s.writeError(w, rec, http.StatusNotFound, codeRouteNotAllowed)
 		return
 	}
-	rec.route = route.String()
+	rec.route = forward.TokenRoute
 
 	// Step 4: the body, bounded (R-4).
 	body, err := readBody(w, r)
@@ -293,7 +283,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	w.Header().Del("Connection")
 
 	// Step 5: forward (PLAN.md §5).
-	resp, err := s.fwd.Forward(r.Context(), route, r.Header, body)
+	resp, err := s.fwd.Forward(r.Context(), r.Header, body)
 	if err != nil {
 		switch {
 		case errors.Is(err, forward.ErrTooLarge):

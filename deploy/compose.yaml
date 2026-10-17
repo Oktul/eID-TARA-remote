@@ -44,10 +44,7 @@ services:
       RELAY_ENVIRONMENT_ID: "<from the admin page>"
       RELAY_CLOUD_IDS: "<from the admin page>"
       RELAY_UPSTREAM_URL: "<from the admin page>"
-      RELAY_ROUTES: "<from the admin page>"
-      # The credential stays out of this file. For a provider without a
-      # relay-held credential, such as Authentigate, remove this line and
-      # both `secrets` entries (PLAN.md §5).
+      # TARA's Basic credential stays in the secret file (PLAN.md §5).
       RELAY_UPSTREAM_AUTH_FILE: /run/secrets/upstream_auth
     secrets:
       - upstream_auth

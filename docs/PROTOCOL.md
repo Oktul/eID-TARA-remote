@@ -9,9 +9,9 @@ implementers of the Forge side (`PLAN.md` §4.6).
 > and until it is fixed `PLAN.md` wins.
 
 Terms: the **relay** is the container the customer runs; the **upstream** is
-the provider endpoint named by `RELAY_UPSTREAM_URL`; a **FIT** is the Forge
+the TARA origin named by `RELAY_UPSTREAM_URL`; a **FIT** is the Forge
 Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
-**route** is one `METHOD /path` pair from `RELAY_ROUTES`.
+**token route** is the fixed request `POST /oidc/token`.
 
 ## 1. Transport
 
@@ -40,10 +40,8 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
 | `GET /livez`         | none | `200` with `{"status":"ok"}` while the process runs. Contacts nothing.                                                                                    |
 | `GET /readyz`        | none | `200` with `{"status":"ok"}` when a usable signing-key snapshot is within its maximum age and the relay is not shutting down; otherwise `503 not_ready`. |
 | `GET /relay/v1/info` | FIT  | `200` with the info document (section 7).                                                                                                                 |
-| `<method> <path>`    | FIT  | Forwarded to the upstream when method and path exactly match a route (section 6).                                                                        |
+| `POST /oidc/token`  | FIT  | Forwarded to TARA's token endpoint (section 6).                                                                                                          |
 
-- **Reserved paths:** `/livez`, `/readyz`, `/relay` and everything under
-  `/relay/`. A route in the configuration that uses one stops startup.
 - **Health exemption:** only `GET` with the request target exactly `/livez`
   or `/readyz`, without a query, bypasses FIT verification and the
   forwarding semaphore. Health requests never contact the upstream or the
@@ -58,9 +56,9 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
    `503 too_busy` (R-5).
 2. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
    Otherwise verify the FIT (section 5), or answer `401 invalid_token`.
-3. Match method and path exactly against the routes, or answer
+3. Require exactly `POST /oidc/token`, or answer
    `404 route_not_allowed`. The FIT check comes first, so a caller without a
-   valid token learns nothing about the routes.
+   valid token learns nothing about the token route.
 4. Read the body up to 64 KiB (65536 bytes), or answer
    `413 body_too_large` with `Connection: close`: the relay closes the
    connection rather than read the rest of a refused body to keep it. If the
@@ -85,8 +83,7 @@ with:
 
 - `Relay-Upstream-Status: <code>`, the upstream's status;
 - the upstream body unchanged;
-- only the upstream headers in `RELAY_RESPONSE_HEADERS` (default
-  `Content-Type`, `Cache-Control`, `Pragma`);
+- only the upstream headers `Content-Type`, `Cache-Control`, `Pragma`;
 - `Relay-Protocol: 1` and `Relay-Version`.
 
 The wrapping lets the Forge app distinguish a provider's `401 invalid_client`
@@ -311,16 +308,14 @@ lives 25 s; the relay does not depend on that lifetime.
 
 ### 6.1 Destination and paths
 
-- The destination is `RELAY_UPSTREAM_URL` plus the request path, joined by
-  concatenation: `https://provider.example/base` plus `/oidc/token` means
-  `/base/oidc/token`. Nothing in the request can change the scheme, host or
-  port (F-3), and the request is never resolved as a URL reference or
-  cleaned into a different allowed path.
+- The destination is the configured HTTPS origin plus the fixed path
+  `/oidc/token`, for example `https://tara.ria.ee/oidc/token`. The upstream
+  request always uses `POST`. Nothing in the request can change the scheme,
+  host, port or path (F-3).
 - Matching is exact. A path with `..`, `//`, a backslash, an encoded slash
   or dot, or non-ASCII characters is refused, and so is any query string:
-  token calls have none. Requests are compared byte for byte with the raw
-  request target, so a request breaking any path rule of section 8 cannot
-  match.
+  token calls have none. The raw request target must be exactly
+  `/oidc/token`, without cleaning or decoding.
 
 ### 6.2 Request headers
 
@@ -333,10 +328,12 @@ lives 25 s; the relay does not depend on that lifetime.
 
 ### 6.3 Credential
 
-- TARA: `Authorization: Basic base64(client_id:client_secret)`, stored in
-  the relay (`client_secret_basic` is TARA's only method).
-- Authentigate: `private_key_jwt`. Forge signs the client assertion and sends
-  it in the body; the relay sets no credential.
+The supported TARA setup uses `client_secret_basic`: the relay supplies
+`Authorization: Basic <credentials>` from its local secret file. Form-encode
+the client ID and secret separately, join them with `:`, then Base64-encode
+the result. TARA defaults to this method; it also permits
+`client_secret_post` for clients registered for it, but this relay adds no
+body-credential feature. See [TARA's token request specification](https://e-gov.github.io/TARA-Doku/TechnicalSpecification#43-identity-token-request).
 
 ### 6.4 Response
 
@@ -345,9 +342,8 @@ lives 25 s; the relay does not depend on that lifetime.
   `502 upstream_too_large` (R-4).
 - The upstream's response header, which is read before that limit applies,
   may have at most 32 KiB; a larger one answers `502 upstream_unreachable`.
-- Only the headers in `RELAY_RESPONSE_HEADERS` pass back (default
-  `Content-Type`, `Cache-Control`, `Pragma`). Headers nominated by the
-  upstream's `Connection` header are also removed at runtime.
+- Only `Content-Type`, `Cache-Control` and `Pragma` pass back. Headers
+  nominated by the upstream's `Connection` header are also removed at runtime.
 
 ### 6.5 Upstream client
 
@@ -372,8 +368,8 @@ automatically retries that exchange. The relay drops idempotency headers and
 does not mark token `POST`s as idempotent or give them a replay callback.
 Go's transport may recover a reused connection when nothing was written,
 but not for a token `POST` with a body, which then fails as
-`502 upstream_unreachable`; it may also retry an idempotent `GET`. Neither
-authorizes a second token `POST` after a possibly delivered request.
+`502 upstream_unreachable`. No token exchange is retried after possible
+delivery.
 
 ## 7. Health and info bodies
 
@@ -391,15 +387,15 @@ responses carry `Relay-Protocol: 1` and, being unauthenticated, never
 `Relay-Version`, for example:
 
 ```json
-{"relay_version":"1.2.0","protocol_version":1,"upstream_url":"https://provider.example/base","routes":["POST /oidc/token"],"credential_set":true}
+{"relay_version":"1.2.0","protocol_version":1,"upstream_url":"https://tara.ria.ee","routes":["POST /oidc/token"],"credential_set":true}
 ```
 
 | Member             | Meaning                                                              |
 | ------------------ | -------------------------------------------------------------------- |
 | `relay_version`    | The relay release                                                    |
 | `protocol_version` | The protocol version                                                 |
-| `upstream_url`     | The configured origin and base path of `RELAY_UPSTREAM_URL`          |
-| `routes`           | The allowed routes, each as `METHOD /path`                           |
+| `upstream_url`     | The configured HTTPS origin in `RELAY_UPSTREAM_URL`                 |
+| `routes`           | Always `["POST /oidc/token"]`                                       |
 | `credential_set`   | Whether a credential is set; its value is never shown                |
 
 The admin page uses this document for its health check and its "relay too
@@ -409,7 +405,7 @@ old" message.
 
 Environment variables, read and checked once at startup, before the listener
 opens. The admin page writes `RELAY_APP_ID`, `RELAY_ENVIRONMENT_ID`,
-`RELAY_CLOUD_IDS`, `RELAY_UPSTREAM_URL` and `RELAY_ROUTES`; the customer adds
+`RELAY_CLOUD_IDS` and `RELAY_UPSTREAM_URL`; the customer adds
 only the credential.
 
 | Setting                                     | Required | Default                             | Purpose                                                                 |
@@ -417,12 +413,10 @@ only the credential.
 | `RELAY_APP_ID`                              | yes      |                                     | Expected FIT audience                                                   |
 | `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                 |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                 |
-| `RELAY_UPSTREAM_URL`                        | yes      |                                     | Provider origin with an optional base path, HTTPS only                  |
-| `RELAY_ROUTES`                              | yes      |                                     | Allowed `METHOD /path` pairs, comma-separated, e.g. `POST /oidc/token`  |
+| `RELAY_UPSTREAM_URL`                        | yes      |                                     | TARA HTTPS origin, e.g. `https://tara.ria.ee`                             |
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)          |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                   |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                       |
-| `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                            |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                             |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                         |
 | `RELAY_CLOCK_SKEW`                          | no       | `10s`                               | Tolerance for `exp` and `nbf`                                           |
@@ -454,27 +448,19 @@ Validation rules:
 - **`RELAY_LOG_LEVEL`** is matched exactly.
 - **`RELAY_UPSTREAM_URL`** starts with `https://` and must have a host, a
   port from 1 to 65535 if it names one, and no userinfo, query or fragment.
-  Its optional base path obeys the path rules below and has no trailing
-  slash, except that `/` means no prefix.
+  It has no path, except an optional root `/` that is normalized away.
 - **`RELAY_JWKS_URL`** starts with `https://` and must have a host, a port
   from 1 to 65535 if it names one, and no userinfo, query or fragment.
 - **`RELAY_UPSTREAM_CA_FILE`** names a file of at most 1 MiB that holds one
   or more PEM `CERTIFICATE` blocks, each an X.509 certificate, with nothing
   but whitespace between and around them. Comment lines, other block types
   such as `TRUSTED CERTIFICATE` and damaged blocks are refused.
-- **Paths** (routes and the base path) may use only ASCII letters, digits
-  and `-._~!$&'()*+;=:@/`, with no `.` segment. This refuses all
-  percent-encoding, which covers encoded slashes and dots, and the comma
-  that separates `RELAY_ROUTES` items. Route methods are `GET`, `POST`,
-  `PUT`, `PATCH` and `DELETE`.
-- **Header names** are validated. Mandatory exclusions override the
-  allowlist and are applied case-insensitively:
-  - `RELAY_RESPONSE_HEADERS` cannot include hop-by-hop headers,
-    `Content-Length`, `Set-Cookie` or `Relay-*`;
-  - `RELAY_UPSTREAM_AUTH` is `Name: value`; spaces and tabs around the value
-    are removed. It may supply `Authorization`, but cannot supply routing,
-    framing, hop-by-hop, idempotency or relay-owned headers. Its value may
-    contain no control character other than tab, so CR and LF are refused.
+- **Credential header.** `RELAY_UPSTREAM_AUTH` is `Name: value`; the name
+  must be valid and spaces and tabs around the value are removed. It may
+  supply `Authorization`, but cannot supply routing, framing, hop-by-hop,
+  idempotency or relay-owned headers. These exclusions apply
+  case-insensitively. Its value may contain no control character other than
+  tab, so CR and LF are refused.
 - **Errors.** All settings are parsed and checked before the listener opens.
   The first error names the setting, never its value, and exits with code 2
   (R-13). An unreachable upstream or JWKS never stops startup.
@@ -489,6 +475,9 @@ Validation rules:
 
 ## 9. Versioning and compatibility (`PLAN.md` §4.6, §12)
 
+- The owner narrowed v1 to TARA token exchange on 2026-10-17, before any
+  release. The fixed route, origin-only upstream and fixed response headers
+  are part of the first published contract (`PLAN.md` D11).
 - This is protocol version 1: `Relay-Protocol: 1` and `protocol_version: 1`.
 - Patch releases (`X.Y.Z` to `X.Y.Z+1`) preserve this contract: they never
   change an endpoint, response code, header or setting. Security fixes may

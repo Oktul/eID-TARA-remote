@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"eid-forge-remote/internal/config"
-	"eid-forge-remote/internal/forward"
 )
 
 // Synthetic identifiers; none belongs to a real app, environment or site.
@@ -37,14 +36,13 @@ const (
 	marker = "SECRETMARKER5f1c"
 )
 
-// requiredEnv returns valid values for the five required settings.
+// requiredEnv returns valid values for the four required settings.
 func requiredEnv() map[string]string {
 	return map[string]string{
 		"RELAY_APP_ID":         appID,
 		"RELAY_ENVIRONMENT_ID": envID,
 		"RELAY_CLOUD_IDS":      cloudID,
 		"RELAY_UPSTREAM_URL":   "https://provider.example",
-		"RELAY_ROUTES":         "POST /oidc/token",
 	}
 }
 
@@ -180,12 +178,8 @@ func table(t *testing.T) []row {
 			func(c *config.Config) bool { return c.EnvironmentID == envID }},
 		{"RELAY_CLOUD_IDS", " " + cloudID + " ,\tsite-2", cloudID + "," + marker + "\x01",
 			func(c *config.Config) bool { return slices.Equal(c.CloudIDs, []string{cloudID, "site-2"}) }},
-		{"RELAY_UPSTREAM_URL", "https://provider.example/base", "http://" + marker + ".example",
-			func(c *config.Config) bool { return c.Upstream.String() == "https://provider.example/base" }},
-		{"RELAY_ROUTES", "POST /oidc/token, GET /oidc/jwks", "POST /oidc/" + marker + "%2F",
-			func(c *config.Config) bool {
-				return slices.Equal(c.Routes, []forward.Route{{Method: "POST", Path: "/oidc/token"}, {Method: "GET", Path: "/oidc/jwks"}})
-			}},
+		{"RELAY_UPSTREAM_URL", "https://provider.example:8443", "http://" + marker + ".example",
+			func(c *config.Config) bool { return c.Upstream.String() == "https://provider.example:8443" }},
 		{"RELAY_UPSTREAM_AUTH", "x-api-key: synthetic", "Authorization: Basic " + marker + "\r\nX: y",
 			func(c *config.Config) bool {
 				return c.Credential != nil && c.Credential.Name == "X-Api-Key" && c.Credential.Value.Reveal() == "synthetic"
@@ -195,10 +189,6 @@ func table(t *testing.T) []row {
 		{"RELAY_INSTALLATION_IDS", "install-1,install-2", "install-1," + marker + "\x7f",
 			func(c *config.Config) bool {
 				return slices.Equal(c.InstallationIDs, []string{"install-1", "install-2"})
-			}},
-		{"RELAY_RESPONSE_HEADERS", "Content-Type,expires", "Content-Type,Relay-" + marker,
-			func(c *config.Config) bool {
-				return slices.Equal(c.ResponseHeaders, []string{"Content-Type", "Expires"})
 			}},
 		{"RELAY_PORT", "8443", "8443" + marker,
 			func(c *config.Config) bool { return c.Port == 8443 }},
@@ -273,13 +263,13 @@ func TestEverySettingIsRead(t *testing.T) {
 	}
 }
 
-// TestSettingNames pins the 17 setting names of PLAN.md §8 as literals: none
+// TestSettingNames pins the 15 setting names of PLAN.md §8 as literals: none
 // of them, nor its _FILE variant, is reported as unknown.
 func TestSettingNames(t *testing.T) {
 	names := []string{
 		"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL",
-		"RELAY_ROUTES", "RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-		"RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
+		"RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
+		"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE", "RELAY_LOG_LEVEL",
 	}
@@ -311,7 +301,6 @@ func TestDefaults(t *testing.T) {
 		{"RELAY_UPSTREAM_AUTH", c.Credential == nil, true},
 		{"RELAY_UPSTREAM_CA_FILE", c.UpstreamCAs == nil, true},
 		{"RELAY_INSTALLATION_IDS", c.InstallationIDs == nil, true},
-		{"RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ","), "Content-Type,Cache-Control,Pragma"},
 		{"RELAY_PORT", c.Port, 8080},
 		{"RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout, 10 * time.Second},
 		{"RELAY_CLOCK_SKEW", c.ClockSkew, 10 * time.Second},
@@ -384,7 +373,7 @@ func TestErrorNamesSettingThenReason(t *testing.T) {
 }
 
 func TestRequiredSettings(t *testing.T) {
-	for _, name := range []string{"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL", "RELAY_ROUTES"} {
+	for _, name := range []string{"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL"} {
 		t.Run(name, func(t *testing.T) {
 			m := requiredEnv()
 			delete(m, name)
@@ -529,20 +518,9 @@ func TestCredentialFromFile(t *testing.T) {
 	}
 }
 
-// TestUnsafeHeaderSettings proves that the mandatory exclusions of PLAN.md §5
-// override the response allowlist and the credential setting,
-// case-insensitively.
-func TestUnsafeHeaderSettings(t *testing.T) {
-	response := []string{
-		"Content-Length", "Set-Cookie", "set-cookie", "Connection", "Keep-Alive", "Transfer-Encoding",
-		"Upgrade", "Trailer", "Proxy-Authenticate", "Relay-Upstream-Status", "relay-version", "Relay-Error",
-		"Bad Header", "Bad:Header", "Bad\x01", "Ünicode", "Pragma,pragma",
-	}
-	for _, h := range response {
-		t.Run("response/"+h, func(t *testing.T) {
-			loadError(t, with(requiredEnv(), "RELAY_RESPONSE_HEADERS", "Content-Type,"+h), "RELAY_RESPONSE_HEADERS")
-		})
-	}
+// TestUnsafeCredentialSetting proves the mandatory header exclusions of
+// PLAN.md §5 apply to the credential setting case-insensitively.
+func TestUnsafeCredentialSetting(t *testing.T) {
 	for rule, v := range map[string]string{
 		"host":                "Host: " + marker,
 		"content_length":      "content-length: 1",
@@ -748,36 +726,25 @@ func TestIDs(t *testing.T) {
 	}
 }
 
-// TestUpstreamAndRoutes checks that the forward parsers guard both settings;
-// their rules are tested in internal/forward.
-func TestUpstreamAndRoutes(t *testing.T) {
+// TestUpstreamOrigin checks that the forward parser guards the upstream
+// setting; its rules are tested in internal/forward.
+func TestUpstreamOrigin(t *testing.T) {
+	if c := mustLoad(t, with(requiredEnv(), "RELAY_UPSTREAM_URL", "https://provider.example/")); c.Upstream.String() != "https://provider.example" {
+		t.Errorf("upstream = %q, want an origin without a trailing slash", c.Upstream.String())
+	}
 	for name, v := range map[string]string{
 		"http":           "http://provider.example",
 		"userinfo":       "https://" + marker + "@provider.example",
 		"query":          "https://provider.example/?" + marker,
 		"fragment":       "https://provider.example/#" + marker,
 		"trailing_slash": "https://provider.example/base/",
+		"base_path":      "https://provider.example/base",
+		"token_path":     "https://provider.example/oidc/token",
 		"port_zero":      "https://provider.example:0/" + marker,
 		"port_too_large": "https://provider.example:65536/" + marker,
 	} {
-		t.Run("upstream/"+name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			loadError(t, with(requiredEnv(), "RELAY_UPSTREAM_URL", v), "RELAY_UPSTREAM_URL")
-		})
-	}
-	for name, v := range map[string]string{
-		"reserved_livez":  "GET /livez",
-		"reserved_readyz": "GET /readyz",
-		"reserved_info":   "GET /relay/v1/info",
-		"duplicate":       "POST /a, POST /a",
-		"lowercase":       "post /a",
-		"dot_segments":    "POST /a/../" + marker,
-		"query":           "POST /a?" + marker,
-		"two_spaces":      "POST  /a",
-		"no_path":         "POST",
-		"head":            "HEAD /a",
-	} {
-		t.Run("routes/"+name, func(t *testing.T) {
-			loadError(t, with(requiredEnv(), "RELAY_ROUTES", v), "RELAY_ROUTES")
 		})
 	}
 }
@@ -907,6 +874,10 @@ func TestUnknownNames(t *testing.T) {
 		"RELAY_APPID", marker,
 		"RELAY_PORT_FILE_FILE", marker,
 		"RELAY_", marker,
+		"RELAY_ROUTES", marker,
+		"RELAY_ROUTES_FILE", marker,
+		"RELAY_RESPONSE_HEADERS", marker,
+		"RELAY_RESPONSE_HEADERS_FILE", marker,
 		// A known name plus _FILE is the file variant, even for a name
 		// that itself ends in _FILE.
 		"RELAY_UPSTREAM_CA_FILE_FILE", writeFile(t, "ca-path", []byte(ca+"\n")),
@@ -917,7 +888,7 @@ func TestUnknownNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if want := []string{"RELAY_", "RELAY_APPID", "RELAY_PORT_FILE_FILE"}; !slices.Equal(unknown, want) {
+	if want := []string{"RELAY_", "RELAY_APPID", "RELAY_PORT_FILE_FILE", "RELAY_RESPONSE_HEADERS", "RELAY_RESPONSE_HEADERS_FILE", "RELAY_ROUTES", "RELAY_ROUTES_FILE"}; !slices.Equal(unknown, want) {
 		t.Errorf("unknown = %v, want %v", unknown, want)
 	}
 	if c.UpstreamCAs == nil {
@@ -1024,7 +995,6 @@ func TestSummary(t *testing.T) {
 			"RELAY_UPSTREAM_AUTH": "not set", "RELAY_UPSTREAM_CA_FILE": "system bundle",
 			"RELAY_INSTALLATION_IDS": "any",
 			"RELAY_PORT":             "8080", "RELAY_LOG_LEVEL": "info", "RELAY_UPSTREAM_TIMEOUT": "10s",
-			"RELAY_ROUTES": "POST /oidc/token", "RELAY_RESPONSE_HEADERS": "Content-Type,Cache-Control,Pragma",
 		}},
 		{"credential_from_env", fromEnv, map[string]string{
 			"RELAY_UPSTREAM_AUTH": "set", "RELAY_UPSTREAM_CA_FILE": "set",

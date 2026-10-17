@@ -2,10 +2,9 @@
 
 // Package forward is the relay's only path to the upstream (PLAN.md §5).
 //
-// It validates the forwarding settings (routes, upstream URL, header
-// allowlists and the credential, PLAN.md §8), matches a request to an
-// allowed route byte for byte (PLAN.md §4.2 step 3) and sends it with a
-// client that follows no redirects, never decompresses, speaks only
+// It validates the upstream origin and credential (PLAN.md §8), then sends
+// POST /oidc/token with the fixed header allowlists of PLAN.md §5. Its
+// client follows no redirects, never decompresses, speaks only
 // HTTP/1.1 over TLS 1.2 or later and never replays a token exchange
 // (PLAN.md §5, R-8).
 //

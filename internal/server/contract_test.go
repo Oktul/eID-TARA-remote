@@ -147,7 +147,7 @@ func TestContractInfo(t *testing.T) {
 			r := newRelay(t, relayOptions{env: c.env})
 			got := r.do(t, "GET", "/relay/v1/info", bearer(validFIT(t)), nil)
 			want := `{"relay_version":"1.2.0","protocol_version":1,"upstream_url":"` + r.upstreamURL +
-				`","routes":["POST /oidc/token","GET /oidc/keys"],"credential_set":` + c.credential + `}`
+				`","routes":["POST /oidc/token"],"credential_set":` + c.credential + `}`
 			if got.status != http.StatusOK || got.body != want {
 				t.Errorf("got %d %s\nwant 200 %s", got.status, got.body, want)
 			}

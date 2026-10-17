@@ -1,10 +1,10 @@
 # eID Forge Remote
 
-The relay for the Oktul eID SSO Forge app. Some login providers, such as TARA
-live and Authentigate, accept token requests only from allowlisted IP
-addresses. A customer runs this small container in their own network, so the
-provider sees the customer's static IP, and the provider credential stays in
-the customer's relay, never in Forge or with Oktul.
+The TARA token relay for the Oktul eID SSO Forge app. TARA production accepts
+token requests only from allowlisted IP addresses. A customer runs this
+small container in their own network, so TARA sees the customer's static IP,
+and the TARA credential stays in the customer's relay, never in Forge or
+with Oktul.
 
 ```
 Forge app ──HTTPS──▶ reverse proxy ──HTTP──▶ relay ──HTTPS──▶ provider token endpoint
@@ -12,8 +12,8 @@ Forge app ──HTTPS──▶ reverse proxy ──HTTP──▶ relay ──HTT
 ```
 
 A request reaches the provider only if it carries a valid Forge Invocation
-Token for this app, from the pinned site and Forge environment, on a
-configured route. Everything else is refused. The relay never logs bodies,
+Token for this app, from the pinned site and Forge environment, for exactly
+`POST /oidc/token`. Everything else is refused. The relay never logs bodies,
 tokens or the credential.
 
 **Status: not yet released.** No image is published, so the `0.1.0` tag in
@@ -32,14 +32,13 @@ below.
 2. **Deploy files:** copy `deploy/compose.yaml` and `deploy/Caddyfile`, or
    `deploy/kubernetes/`, from the release tag, and set the image tag to that
    release (§4, §5).
-3. **Settings:** replace the five `"<from the admin page>"` values with the
+3. **Settings:** replace the four `"<from the admin page>"` values with the
    block the Oktul eID SSO admin page shows, keeping the quotes (§2):
    `RELAY_APP_ID`, `RELAY_ENVIRONMENT_ID`, `RELAY_CLOUD_IDS`,
-   `RELAY_UPSTREAM_URL` and `RELAY_ROUTES`.
-4. **Credential:** for TARA, `secrets/upstream_auth` holds one line,
-   `Authorization: Basic <base64(client_id:client_secret)>`, readable by user
-   65532; also add TARA's CA file (§3.1, §3.2). Authentigate needs none:
-   remove the credential entries from the deploy file (§3.3).
+   and `RELAY_UPSTREAM_URL` (the TARA HTTPS origin).
+4. **Credential:** `secrets/upstream_auth` holds one Basic authorization
+   header, readable by user 65532; encode each credential component as
+   described in §3.1. Also add TARA's CA file (§3.2).
 5. **Network:** serve HTTPS at a reverse proxy that admits only Atlassian's
    egress ranges and caps inbound connections (§6.3). With the bundled
    Caddy, set your DNS name and the IP filter in `Caddyfile` (§6.4), then run

@@ -291,8 +291,16 @@ func TestRequestTargetsRefusedAfterFIT(t *testing.T) {
 		{"trailing_slash", "POST", "/oidc/token/"},
 		{"path_case", "POST", "/OIDC/token"},
 		{"method_case", "post", "/oidc/token"},
-		{"wrong_method", "PUT", "/oidc/token"},
-		{"head_for_get_route", "HEAD", "/oidc/keys"},
+		{"get_token", "GET", "/oidc/token"},
+		{"head_token", "HEAD", "/oidc/token"},
+		{"put_token", "PUT", "/oidc/token"},
+		{"patch_token", "PATCH", "/oidc/token"},
+		{"delete_token", "DELETE", "/oidc/token"},
+		{"options_token", "OPTIONS", "/oidc/token"},
+		{"trace_token", "TRACE", "/oidc/token"},
+		{"connect_token", "CONNECT", "/oidc/token"},
+		{"other_method", "PROPFIND", "/oidc/token"},
+		{"other_path", "POST", "/oidc/keys"},
 		{"info_query", "GET", "/relay/v1/info?x"},
 		{"info_head", "HEAD", "/relay/v1/info"},
 		{"info_post", "POST", "/relay/v1/info"},
@@ -322,7 +330,7 @@ func TestRequestTargetsRefusedAfterFIT(t *testing.T) {
 		expectRelayError(t, r.raw(t, "OPTIONS", requestText("OPTIONS", "*", nil)), 401, "invalid_token", false)
 	})
 	t.Run("exact_route_control", func(t *testing.T) {
-		got := r.raw(t, "GET", requestText("GET", "/oidc/keys", bearer(fit)))
+		got := r.raw(t, "POST", requestText("POST", "/oidc/token", bearer(fit)))
 		if got.status != http.StatusOK || got.body != upstreamBody {
 			t.Errorf("got %d %q, want the upstream answer", got.status, got.body)
 		}
@@ -695,7 +703,7 @@ func TestPanicBecomesInternalError(t *testing.T) {
 }
 
 // TestForwardedRequestCarriesOnlyAllowedParts follows one request to the
-// upstream (PLAN.md §5): the base path is joined, the credential replaces
+// upstream (PLAN.md §5): the target stays /oidc/token, the credential replaces
 // the caller's Authorization, so the FIT never leaves the relay, and only
 // allowlisted headers and the unchanged body pass.
 func TestForwardedRequestCarriesOnlyAllowedParts(t *testing.T) {
@@ -727,7 +735,7 @@ func TestForwardedRequestCarriesOnlyAllowedParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.method != "POST" || s.target != "/base/oidc/token" || s.host != u.Host || s.body != body {
+	if s.method != "POST" || s.target != "/oidc/token" || s.host != u.Host || s.body != body {
 		t.Errorf("upstream got %s %s Host %s body %q", s.method, s.target, s.host, s.body)
 	}
 	if v := s.header.Values("Authorization"); len(v) != 1 || v[0] != testCredential {
@@ -962,7 +970,7 @@ func TestCloudIDOnlyAfterVerifiedFIT(t *testing.T) {
 	}
 }
 
-// TestLogMethods proves PLAN.md §10: methods outside the route methods are
+// TestLogMethods proves PLAN.md §10: methods outside the fixed log allowlist are
 // logged as "other", never as sent.
 func TestLogMethods(t *testing.T) {
 	r := newRelay(t, relayOptions{})
@@ -981,7 +989,7 @@ func TestLogMethods(t *testing.T) {
 }
 
 // TestRouteLoggedOnlyWhenMatched proves PLAN.md §10: route is the fixed
-// "unmatched" marker until a configured route or relay endpoint matches.
+// "unmatched" marker until the token route or a relay endpoint matches.
 func TestRouteLoggedOnlyWhenMatched(t *testing.T) {
 	r := newRelay(t, relayOptions{})
 	fit := validFIT(t)
@@ -994,7 +1002,7 @@ func TestRouteLoggedOnlyWhenMatched(t *testing.T) {
 		{"invalid_token", "POST", "/oidc/token", nil, "", "unmatched"},
 		{"route_not_allowed", "POST", "/oidc/other", bearer(fit), "", "unmatched"},
 		{"body_too_large", "POST", "/oidc/token", bearer(fit), strings.Repeat("a", server.MaxRequestBytes+1), "POST /oidc/token"},
-		{"forwarded", "GET", "/oidc/keys", bearer(fit), "", "GET /oidc/keys"},
+		{"forwarded", "POST", "/oidc/token", bearer(fit), "", "POST /oidc/token"},
 		{"info", "GET", "/relay/v1/info", bearer(fit), "", "GET /relay/v1/info"},
 		{"readyz", "GET", "/readyz", nil, "", "GET /readyz"},
 	}

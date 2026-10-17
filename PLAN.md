@@ -1,10 +1,10 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-16: Phases 1 and 2 implemented on review branches, ahead of
-Phase 0 (D10), and checked locally (§16). Phase 0 ran the same day: every
+_Status 2026-10-17: Phases 1 and 2 implemented on review branches, ahead of
+Phase 0 (D10), and checked locally (§16). Phase 0 ran on 2026-10-16: every
 gate passed except PINNED, which needs a site with data residency (§14).
 Not tagged, pushed or published; no workflow has run, since the repository
-has no remote yet. All three review rounds are done for every change,
+has no remote yet. All three review rounds are done for every change on main,
 Phase 0 fixes included, with no open code findings: `codex/review-phase-0-results`
 is the whole line, and `main` is fast-forwarded to it after the owner's
 one-time history rewrite (§16). Still open: the PINNED
@@ -14,15 +14,18 @@ gate, source CI on GitHub and the Phase 2 release verifications. Adding
 (2026-10-16) removes the site fallback and built-in TLS, refuses exponent
 dates, fixes the body, concurrency and request-header limits, shortens
 config loading and drops three guards that no caller can reach (owner
-decisions in §4.4, §5, §6, §8 and D8); it
-has had review round 1 only._
+decisions in §4.4, §5, §6, §8 and D8). Codex's round 2 found no defects on
+that branch (2026-10-17). The follow-up `codex/simplify-tara` removes test-only
+limit options and local number parsers and narrows forwarding to TARA's
+single token endpoint (D11); it awaits Claude's final review._
 
 ## 1. What it is
 
 A small container, "the relay", that a customer runs in their own network. It
-lets the Oktul eID SSO Forge app call a login provider's token endpoint that
-accepts only allowlisted IP addresses (TARA live and Authentigate, blocker B9
-in the Forge app's plan).
+lets the Oktul eID SSO Forge app call TARA's token endpoint from an
+allowlisted IP address (blocker B9 in the Forge app's plan). It forwards
+only `POST /oidc/token`; other providers and endpoints are outside v1
+(owner, 2026-10-17, D11).
 
 - The provider sees the customer's own static IP.
 - The provider credential (for TARA, the client secret) lives only in the
@@ -56,6 +59,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D8  | **Limits sized for token calls:** 10 s upstream timeout; 64 KiB request and response limits and 50 concurrent requests, fixed rather than settings (owner, 2026-10-16). | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Fixed limits keep the memory bound a constant far below 128 MB (§6) and remove three settings and their budget check. |
 | D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
 | D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback ships disabled, and no gate counts as passed until it is recorded here.                       |
+| D11 | **TARA token exchange only** (owner, 2026-10-17). Fix the route to `POST /oidc/token`, the upstream to an HTTPS origin without a base path and response headers to `Content-Type`, `Cache-Control`, `Pragma`; remove `RELAY_ROUTES` and `RELAY_RESPONSE_HEADERS`. | The relay serves this app's TARA token exchange. Configurable routes, base paths, response headers and other-provider setup add code and settings without a current use case. The existing optional credential setting is unchanged; the supported TARA setup supplies Basic authentication. No release exists, so these changes belong to the first protocol-v1 release. |
 
 ## 3. Request flow
 
@@ -91,17 +95,17 @@ app supports every protocol version still supported (V-2).
 | -------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /livez`         | none | The process is running. Contacts nothing (O-1).                                                                                                                                         |
 | `GET /readyz`        | none | A usable signing-key snapshot is within its maximum age and the relay is not shutting down (O-2; §4.5).                                                                                |
-| `GET /relay/v1/info` | FIT  | Relay version, protocol version, upstream origin, allowed routes, whether a credential is set (never its value). Used by the admin page's health check and its "relay too old" message. |
-| `<method> <path>`    | FIT  | Forwarded to the upstream when method and path exactly match an allowed route.                                                                                                          |
+| `GET /relay/v1/info` | FIT  | Relay version, protocol version, upstream origin, the fixed token route, whether a credential is set (never its value). Used by the admin page's health check and its "relay too old" message. |
+| `POST /oidc/token`  | FIT  | Forwarded to TARA's token endpoint.                                                                                                                                                    |
 
-`/livez`, `/readyz`, `/relay` and everything under `/relay/` are reserved; a
-route in the configuration that uses them stops startup.
+Only the token route is forwarded. Health and info are local endpoints;
+every other method and request target is refused after authentication.
 
 **Bodies (2026-10-15).** `/livez` and a ready `/readyz` answer `200` with
 `{"status":"ok"}`; an unready `/readyz` answers `503 not_ready` as in §4.3.
 `/relay/v1/info` answers `200` with
-`{"relay_version":"1.2.0","protocol_version":1,"upstream_url":"https://provider.example/base","routes":["POST /oidc/token"],"credential_set":true}`,
-where `upstream_url` is the configured origin and base path. Relay error
+`{"relay_version":"1.2.0","protocol_version":1,"upstream_url":"https://tara.ria.ee","routes":["POST /oidc/token"],"credential_set":true}`,
+where `upstream_url` is the configured HTTPS origin. Relay error
 bodies are exactly `{"error":"<code>"}` with `Content-Type: application/json`.
 
 ### 4.2 Checks, in order
@@ -116,9 +120,9 @@ these checks.
 1. Take a concurrency slot without waiting, or answer `503 too_busy` (R-5).
 2. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
    Otherwise verify the FIT (§4.4), or answer `401 invalid_token`.
-3. Match method and path exactly against the allowed routes, or answer
+3. Require exactly `POST /oidc/token`, or answer
    `404 route_not_allowed`. The FIT check comes first, so a caller without a
-   valid token learns nothing about the routes.
+   valid token learns nothing about the token route.
 4. Read the body up to the limit, or answer `413 body_too_large`.
 5. Forward (§5).
 
@@ -330,25 +334,16 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 
 ## 5. Forwarding
 
-- **Destination:** `RELAY_UPSTREAM_URL` (HTTPS, an origin with an optional
-  base path) plus the request path. Nothing in the request can change the
-  scheme, host or port (F-3).
-  The configured URL must have a host and no userinfo, query or fragment.
-  Its optional base path obeys the request-path restrictions and has no
-  trailing slash, except that `/` means no prefix. Join the validated prefix
-  and the allowed absolute path by concatenation: `https://provider.example/base`
-  plus `/oidc/token` means `/base/oidc/token`. Never resolve the request as
-  a URL reference or clean it into a different allowed path.
+- **Destination:** `RELAY_UPSTREAM_URL` is an HTTPS origin; the relay always
+  sends `POST` to its fixed `/oidc/token` path (owner, 2026-10-17, D11).
+  Nothing in the request can change the scheme, host, port or path (F-3).
+  The configured URL must have a host and no userinfo, query, fragment or
+  path, except an optional root `/` that is normalized away.
 - **Paths:** exact match only. A path with `..`, `//`, a backslash, an
   encoded slash or dot, or non-ASCII characters is refused. Query strings are
   refused in v1, since token calls have none.
-  Configured paths (routes and the base path) may use only ASCII letters,
-  digits and `-._~!$&'()*+;=:@/`, with no `.` segment (2026-10-15). This
-  refuses all percent-encoding, which covers encoded slashes and dots, and
-  the comma that separates `RELAY_ROUTES` items. Requests are compared byte
-  for byte with the raw request target, so a request breaking any of these
-  rules cannot match. Route methods are `GET`, `POST`, `PUT`, `PATCH` and
-  `DELETE`.
+  The raw request target must be exactly `/oidc/token`, without cleaning or
+  decoding, and the method must be exactly `POST`.
 - **Request headers:** `Host` becomes the upstream host. Only `Content-Type`
   and `Accept` pass from the caller, a fixed allowlist since a token call
   needs no other (owner, 2026-10-16; `RELAY_REQUEST_HEADERS` was removed
@@ -363,19 +358,21 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   configured values without printing them.
   The credential value also refuses every other control character except
   tab (2026-10-15).
-- **Credentials:**
-  - TARA: `Authorization: Basic base64(client_id:client_secret)`, stored in
-    the relay (`client_secret_basic` is TARA's only method, R12).
-  - Authentigate: `private_key_jwt`. Forge signs the client assertion and
-    sends it in the body; the relay sets no credential.
+- **Credential:** the supported TARA setup uses `client_secret_basic`,
+  stored in the relay as `Authorization: Basic <credentials>`. Form-encode
+  the client ID and secret separately, join them with `:`, then Base64-encode
+  the result. TARA defaults to Basic; its official specification also
+  permits `client_secret_post` for clients registered for that method.
+  No body-credential feature is added here. The existing optional
+  `Name: value` setting remains unchanged, including for synthetic fixtures.
+  [TARA's token request specification](https://e-gov.github.io/TARA-Doku/TechnicalSpecification#43-identity-token-request)
+  checked on 2026-10-17 (R12).
 - **Response:** read up to the limit before anything is sent, so an oversize
   answer becomes a clean `502 upstream_too_large` (R-4). The response header
   is capped at `UpstreamMaxHeaderBytes = 32 KiB` before that limit applies
-  (2026-10-15). Only allowed headers
-  pass (default `Content-Type`, `Cache-Control`, `Pragma`).
-  Response allowlists cannot include hop-by-hop headers, `Content-Length`,
-  `Set-Cookie`, `Relay-*` or headers nominated by `Connection`; nomination
-  filtering is also applied at runtime. The relay computes framing and sets
+  (2026-10-15). Only `Content-Type`, `Cache-Control` and `Pragma` pass
+  (owner, 2026-10-17, D11). Headers nominated by `Connection` are dropped
+  even when in this fixed list. The relay computes framing and sets
   its own protocol, version, upstream-status and error headers last. Upstream
   headers can never impersonate a relay error or change its protocol metadata.
 - **Upstream client:**
@@ -517,7 +514,7 @@ and `_`, at most 64 bytes); any other is logged once as
 perhaps the credential, into the name (2026-10-15).
 If both a setting and its `_FILE` variant are provided, startup fails with
 the setting name only. File reads are bounded and configuration errors never
-echo values. Header allowlists cannot override the exclusions in §5.
+echo values. The credential header must obey the exclusions in §5.
 
 **Validation rules (2026-10-15).** A `_FILE` value loses one trailing line
 ending (`\n` or `\r\n`), since secret files usually end with one. A setting
@@ -531,9 +528,11 @@ be positive, except that `RELAY_CLOCK_SKEW` may be `0`; it is at most
 would in effect switch `exp` and `nbf` off. `RELAY_LOG_LEVEL` is matched
 exactly.
 `RELAY_PORT` and a port in `RELAY_UPSTREAM_URL` or `RELAY_JWKS_URL` are
-1–65535. Both URLs start with the literal `https://`, and `RELAY_JWKS_URL`,
-like the upstream URL, has a host and no userinfo, query or fragment, since
-the startup summary prints it. `RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
+1–65535. Both URLs start with the literal `https://` and have a host and no
+userinfo, query or fragment, since the startup summary prints them. The
+upstream is an origin: only an optional root `/` is accepted and normalized
+away; the JWKS URL may include its endpoint path.
+`RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
 of PEM `CERTIFICATE` blocks with only whitespace before, between and after
 them; `_FILE` values are read up to 64 KiB. The
 `RELAY_UPSTREAM_AUTH` value loses spaces and tabs around it and must not be
@@ -544,12 +543,10 @@ empty (2026-10-16).
 | `RELAY_APP_ID`                              | yes      |                                     | Expected FIT audience                                                  |
 | `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                |
-| `RELAY_UPSTREAM_URL`                        | yes      |                                     | Provider origin with an optional base path, HTTPS only                 |
-| `RELAY_ROUTES`                              | yes      |                                     | Allowed `METHOD /path` pairs, comma-separated, e.g. `POST /oidc/token` |
+| `RELAY_UPSTREAM_URL`                        | yes      |                                     | TARA HTTPS origin, e.g. `https://tara.ria.ee`                            |
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)         |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                  |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                      |
-| `RELAY_RESPONSE_HEADERS`                    | no       | `Content-Type,Cache-Control,Pragma` | Response headers passed back                                           |
 | `RELAY_PORT`                                | no       | `8080`                              | Listen port                                                            |
 | `RELAY_UPSTREAM_TIMEOUT`                    | no       | `10s`                               | Overall limit per upstream call                                        |
 | `RELAY_CLOCK_SKEW`                          | no       | `10s`                               | Tolerance for `exp` and `nbf`                                          |
@@ -559,10 +556,10 @@ empty (2026-10-16).
 | `RELAY_SHUTDOWN_GRACE`                      | no       | `15s`                               | Time for in-flight requests on stop                                    |
 | `RELAY_LOG_LEVEL`                           | no       | `info`                              | `debug`, `info`, `warn` or `error`                                     |
 
-**The admin page writes most of this.** For a provider that needs the relay,
+**The admin page writes most of this.** For TARA,
 the Forge admin page shows a ready block with `RELAY_APP_ID`,
-`RELAY_ENVIRONMENT_ID`, `RELAY_CLOUD_IDS`, `RELAY_UPSTREAM_URL` and
-`RELAY_ROUTES` filled in. The customer adds only the credential. This removes
+`RELAY_ENVIRONMENT_ID`, `RELAY_CLOUD_IDS` and `RELAY_UPSTREAM_URL`
+filled in. The customer adds only the credential. This removes
 the most likely setup mistakes.
 
 ## 9. Changes to the requirements (2026-10-15)
@@ -570,7 +567,7 @@ the most likely setup mistakes.
 | Requirement            | Change                                                                                         | Reason                                                                                             |
 | ---------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | A-6 (MAY)              | Site and environment pins are **required**; the installation pin stays optional                | D5                                                                                                 |
-| F-4 (MUST)             | The credential header is **optional**                                                          | Authentigate uses `private_key_jwt` signed in Forge                                                |
+| F-4 (MUST)             | The credential header stays **optional**                                                      | Its existing schema is unchanged; synthetic fixtures need none. Supported TARA setup supplies Basic (D11). |
 | F-7                    | Upstream status in `Relay-Upstream-Status`, HTTP status `200`                                  | D7                                                                                                 |
 | F-8                    | `Relay-Protocol` on every application-generated response; `Relay-Version` only after a valid FIT | HTTP-server and proxy rejections may occur before a relay handler; hide the release from anonymous callers |
 | F-2                    | The FIT is checked before the route                                                            | Routes are not revealed to callers without a token                                                 |
@@ -598,17 +595,18 @@ spike scope and explicit gates, and basic CI moves into Phase 1 (§14).
   never log the rejected value. A trace ID is correlation data, not proof
   of identity. Only a verified FIT supplies `cloud_id`; omit it before
   authentication succeeds.
-  `route` is a matched configured route or a fixed `unmatched` marker;
+  `route` is a matched local endpoint, `POST /oidc/token` or a fixed `unmatched` marker;
   never log raw or decoded rejected paths. Health probes log at `debug`
-  (2026-10-15): orchestrators send one every few seconds. Methods outside the supported
-  method set use an `other` marker. `error` and `auth_reason` are fixed
+  (2026-10-15): orchestrators send one every few seconds. Methods `GET`,
+  `POST`, `PUT`, `PATCH` and `DELETE` keep their names in logs; every other
+  method uses an `other` marker. `error` and `auth_reason` are fixed
   classifications, never raw error strings, URLs, panic values or key IDs.
   Never bodies, query strings, other header values, the FIT or the credential
   (S-7). Tests inject secret markers into rejected inputs and assert that
   neither request logs nor startup diagnostics contain them.
 - **Startup** (O-5): the version, Go version and a summary of the settings.
   The credential shows as `set (from file)`, never its value (S-8). The
-  summary prints the configured upstream URL (origin and base path) and
+  summary prints the configured upstream HTTPS origin and
   JWKS URL, which can hold no userinfo or query (§8).
 - **Deploy files:**
   - `deploy/compose.yaml` (O-6): `restart: unless-stopped`, the health
@@ -644,7 +642,7 @@ spike scope and explicit gates, and basic CI moves into Phase 1 (§14).
 cmd/relay/            main: serve (default), healthcheck, version
 internal/config/      environment parsing and validation
 internal/fit/         FIT verification and the JWKS cache
-internal/forward/     route matching, header filtering, upstream client
+internal/forward/     fixed token request, header filtering, upstream client
 internal/server/      HTTP server, middleware (request ID, recover, limiter, logging), health
 test/load/            small load generator for the acceptance runs (no dependencies)
 deploy/               compose.yaml, Caddyfile, kubernetes/
@@ -933,7 +931,7 @@ promotes unreleased work from `main` into a patch release.
     without a valid signature. CI runs its seed corpus with the unit tests;
     a longer run (at least an hour) happens before v1.0.0. The same applies
     to the other parsers (2026-10-15): strict JSON, NumericDate (against an
-    exact `math/big` oracle), JWKS, routes, paths, the upstream URL, the
+    exact `math/big` oracle), JWKS, the upstream origin, the
     credential header, setting lists, CA bundles and unknown names,
     each with a seed corpus in its package's `testdata/fuzz/`.
   - **Keys:** unreachable at startup, backoff, rotation and removed keys,
@@ -946,11 +944,11 @@ promotes unreleased work from `main` into a patch release.
     so these tests do not wait for real refresh intervals. The fetcher is an
     injected function; the clock is the fake clock of a `testing/synctest`
     bubble, so production code needs no timer interface (2026-10-15).
-  - **Forwarding:** route allowlist, path tricks, header filtering, the
+  - **Forwarding:** the fixed `POST /oidc/token` route, path tricks, header filtering, the
     credential overriding a caller's header, no redirects, size limits before
-    anything is sent, `504` on timeout, cancel on disconnect. Cover base-path
-    joining, request-target tricks before router normalization, immutable
-    header exclusions despite allowlists, Connection-nominated headers,
+    anything is sent, `504` on timeout, cancel on disconnect. Cover origin-only
+    destination validation, request-target tricks before router normalization,
+    the fixed response-header list, Connection-nominated headers,
     spoofed relay response headers, and no token POST replay after a request
     was delivered but the response was lost.
   - **Config:** every setting named without its value in its error, `_FILE`
@@ -981,8 +979,8 @@ promotes unreleased work from `main` into a patch release.
 - **End to end with the Forge app:**
   - a TARA demo login through a relay (the demo accepts any IP, so this
     proves the path);
-  - then an Authentigate demo login, which needs the allowlist and really
-    proves B9.
+  - then a TARA production login from the registered static IP, which proves
+    the allowlisted path needed for B9.
 
 ## 14. Phases
 
@@ -1001,10 +999,9 @@ promotes unreleased work from `main` into a patch release.
      actual `/cb` web trigger calling it via backend `invokeRemote`;
    - inspect claim presence/types without retaining tokens or real IDs;
      prove the environment and calling-site pin on this exact path, and
-     reject a wrong-site and wrong-environment call. If installation-context
-     fallback is needed, demonstrate unambiguous calling-site binding and
-     the conflict/multi-site negative cases from §4.4; otherwise leave it
-     disabled. If no trustworthy site pin exists, stop and revise the plan;
+     reject a wrong-site and wrong-environment call. Require the signed
+     invocation site; installation contexts cannot substitute for it (§4.4).
+     If no trustworthy site pin exists, stop and revise the plan;
    - observe the upstream body plus `Relay-Protocol` and
      `Relay-Upstream-Status` for synthetic upstream `200`, `400`, `401` and
      `302` responses wrapped according to D7. Observe relay-generated errors
@@ -1091,10 +1088,10 @@ promotes unreleased work from `main` into a patch release.
    No publication or tagging without the owner's request.
 3. **Forge integration** (Forge app):
    - the remote;
-   - `/cb` going through it for providers that need a fixed IP;
+   - `/cb` going through it for TARA's token exchange;
    - on the admin page: the relay URL, the configuration block, the health
      check and the "relay too old" message;
-   - live TARA and Authentigate.
+   - TARA demo and production.
 4. **Acceptance:** §13 by hand, plus a security review of both sides.
 5. **Publish:** public repository, `LICENSE`, `SECURITY.md`, support policy,
    `v1.0.0`.
@@ -1109,12 +1106,10 @@ promotes unreleased work from `main` into a patch release.
 3. Does a configurable compute-only remote keep the app PINNED? Not yet
    observed: needs a site with data residency; the egress guide says no
    (§14).
-4. Authentigate: are only token calls IP-restricted, or JWKS too? May one
-   relay IP serve several clients? (Forge app's checklist.) If JWKS is
-   restricted, it becomes a second route (`GET /…/jwks`), with no relay
-   change.
-5. A customer with no host or static IP cannot use TARA live or
-   Authentigate in v1 (D1). Revisit if customers ask for it.
+4. Decided (owner, 2026-10-17, D11): only TARA's token endpoint is in scope.
+   The relay does not forward JWKS, profile or other-provider calls.
+5. A customer with no host or static IP cannot use TARA production in v1
+   (D1). Revisit if customers ask for it.
 6. The publication date, and the GitHub owner for the image name.
 7. Decided (owner, 2026-10-16, on the recommendation to keep it simple and
    secure): `RELAY_JWKS_MAX_AGE` is measured on the monotonic clock, not
@@ -1158,6 +1153,22 @@ fuzzer and its seeds were removed with that parser.
 and `govulncheck ./...` pass in order on this change; no vulnerabilities
 found. Race tests use the pinned Go 1.27.2 Linux builder. No protocol or
 setting changes are part of this cleanup.
+
+**TARA-only follow-up (owner, 2026-10-17, `codex/simplify-tara`).** D11
+replaces configurable routes, upstream base paths and response headers with
+the fixed token exchange. The info document keeps its existing fields and
+reports the single route. Deployment examples, the smoke test and the load
+generator no longer supply removed settings. Tests retain raw-target and
+wrong-method rejection, header filtering, body limits, cancellation and
+token POST replay failures; obsolete route/path parser fuzzers were removed
+with their implementations.
+
+All five required Go checks pass in order, including race tests in the
+pinned Go 1.27.2 Linux builder; no vulnerabilities found. The linux/amd64
+image builds and passes the repository smoke test. Compose configuration
+passes with and without Caddy. Independent agents reviewed the runtime
+changes without open findings or disagreements. Claude's final review is
+still required; no merge, push or repository tag was performed.
 
 **Code-convention review fixes (owner-approved, 2026-10-15):**
 

@@ -901,13 +901,17 @@ func TestPrintSettingsNamesEveryRequiredSetting(t *testing.T) {
 		"RELAY_ENVIRONMENT_ID=ari:cloud:ecosystem::environment/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222\n",
 		"RELAY_CLOUD_IDS=33333333-3333-4333-8333-333333333333\n",
 		"RELAY_UPSTREAM_URL=https://127.0.0.1:9443\n",
-		"RELAY_ROUTES=POST /oidc/token\n",
 		"RELAY_JWKS_URL=https://127.0.0.1:9443/.well-known/jwks.json\n",
 		"RELAY_UPSTREAM_CA_FILE=/tmp/load-ca.pem\n",
 		"SSL_CERT_FILE=/tmp/load-ca.pem\n",
 	} {
 		if !strings.Contains(b.String(), "\n"+line) {
 			t.Errorf("settings lack %q", line)
+		}
+	}
+	for _, name := range []string{"RELAY_ROUTES", "RELAY_RESPONSE_HEADERS"} {
+		if strings.Contains(b.String(), name) {
+			t.Errorf("settings contain removed setting %s", name)
 		}
 	}
 }

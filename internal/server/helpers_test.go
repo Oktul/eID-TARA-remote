@@ -151,7 +151,6 @@ func environ(upstreamURL, jwksURL string, overrides map[string]string) []string 
 		"RELAY_ENVIRONMENT_ID": testEnvID,
 		"RELAY_CLOUD_IDS":      testSiteA + "," + testSiteB,
 		"RELAY_UPSTREAM_URL":   upstreamURL,
-		"RELAY_ROUTES":         "POST /oidc/token,GET /oidc/keys",
 		"RELAY_UPSTREAM_AUTH":  "Authorization: " + testCredential,
 		"RELAY_JWKS_URL":       jwksURL,
 	}
@@ -401,7 +400,7 @@ func newRelay(t *testing.T, o relayOptions) *relay {
 			h = answerOK
 		}
 		up := newTLSServer(t, counted(&r.upstreamHits, h))
-		r.upstreamURL = up.URL + "/base"
+		r.upstreamURL = up.URL
 		if !o.untrustedUpstream {
 			upstreamCAs.AddCert(up.Certificate())
 		}
@@ -451,12 +450,10 @@ func newRelay(t *testing.T, o relayOptions) *relay {
 	}
 	if !o.nilForwarder {
 		opts.Forwarder = forward.New(forward.Options{
-			Upstream:        cfg.Upstream,
-			Routes:          cfg.Routes,
-			Credential:      cfg.Credential,
-			ResponseHeaders: cfg.ResponseHeaders,
-			RootCAs:         upstreamCAs,
-			Timeout:         cfg.UpstreamTimeout,
+			Upstream:   cfg.Upstream,
+			Credential: cfg.Credential,
+			RootCAs:    upstreamCAs,
+			Timeout:    cfg.UpstreamTimeout,
 		})
 	}
 	r.srv = server.New(opts)

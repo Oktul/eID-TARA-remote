@@ -1,10 +1,10 @@
 # Relay setup
 
 This guide is for the administrator who runs the relay for the Oktul eID SSO
-Forge app. You need a relay only for a login provider that accepts calls from
-allowlisted IP addresses, such as TARA live or Authentigate. The relay runs in
-your network, calls the provider's token endpoint from your static IP, and
-keeps the provider credential on your side (`PLAN.md` §1, §10 O-8).
+Forge app's TARA integration. TARA production accepts token calls only from
+allowlisted IP addresses. The relay runs in your network, calls TARA's token
+endpoint from your static IP, and keeps the TARA credential on your side
+(`PLAN.md` §1, §10 O-8).
 
 > **Status.** Not yet released: no image is published, so the tag `0.1.0`
 > in the deploy files does not exist yet, and the admin-page parts below
@@ -23,9 +23,7 @@ Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ─�
 - A host with a **static outbound IP**: Docker with Compose v2, or a
   Kubernetes cluster, on `linux/amd64` or `linux/arm64`. The relay's
   container limit is 128 MB of memory.
-- A **provider registration**: for TARA, a client ID and client secret; for
-  Authentigate, the signing-key setup that its `private_key_jwt` method needs
-  in the Forge app.
+- A **TARA registration** with a client ID and client secret.
 - A **public DNS name and TLS certificate** for inbound HTTPS, served by a
   reverse proxy. The compose file includes an optional Caddy service that
   obtains the certificate itself.
@@ -36,7 +34,7 @@ Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ─�
 
 ## 2. The configuration block
 
-For a provider that needs the relay, the Oktul eID SSO admin page shows a
+For TARA, the Oktul eID SSO admin page shows a
 ready block of settings. Copy it unchanged into the deploy file (sections 4
 and 5). It looks like this (synthetic values):
 
@@ -44,8 +42,7 @@ and 5). It looks like this (synthetic values):
 RELAY_APP_ID=ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001
 RELAY_ENVIRONMENT_ID=ari:cloud:ecosystem::environment/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002
 RELAY_CLOUD_IDS=00000000-0000-4000-8000-000000000003
-RELAY_UPSTREAM_URL=https://provider.example
-RELAY_ROUTES=POST /oidc/token
+RELAY_UPSTREAM_URL=https://tara.ria.ee
 ```
 
 - `RELAY_CLOUD_IDS` pins the relay to your site, and `RELAY_ENVIRONMENT_ID` to
@@ -54,7 +51,8 @@ RELAY_ROUTES=POST /oidc/token
   pointing their installation at your relay and using your IP and credential.
   If several of your own sites share one relay, list each site's ID,
   comma-separated. Never add a site you do not control.
-- Keep every route the block lists.
+- `RELAY_UPSTREAM_URL` is TARA's HTTPS origin, without a path. The relay
+  forwards only `POST /oidc/token`.
 - `RELAY_INSTALLATION_IDS` is an optional extra pin on the installation. A
   reinstall changes the installation ID, so you must then update it.
 - The only thing you add is the credential (section 3). Every setting, its
@@ -70,21 +68,26 @@ The startup log shows the credential only as `set (from file)`.
 
 ### 3.1 TARA
 
-TARA authenticates clients with `client_secret_basic` only. The relay sends
-the header for you, so the credential file holds exactly one line:
+TARA defaults to `client_secret_basic`; it also supports `client_secret_post`
+for clients registered for that method. This setup uses Basic: the relay
+sends the header for you, so the credential file holds exactly one line:
 
 ```
-Authorization: Basic <base64(client_id:client_secret)>
+Authorization: Basic <base64(form_encoded_client_id:form_encoded_client_secret)>
 ```
 
-To write it without the secret reaching your shell history or the process
-list (bash, in the directory that holds `compose.yaml`):
+First form-encode the client ID and secret separately, as required by
+[TARA's token request specification](https://e-gov.github.io/TARA-Doku/TechnicalSpecification#431-using-client_secret_basic-client-authentication-method).
+Letters, digits and `-._*` remain unchanged; spaces become `+` and other
+bytes use percent-encoding. To write the header without the secret reaching
+your shell history or the process list (bash, in the directory that holds
+`compose.yaml`):
 
 ```bash
 umask 077
 mkdir -p secrets
-read -r -p 'client_id: ' id
-read -rs -p 'client_secret: ' secret; echo
+read -r -p 'Form-encoded client_id: ' id
+read -rs -p 'Form-encoded client_secret: ' secret; echo
 printf 'Authorization: Basic %s\n' \
   "$(printf '%s:%s' "$id" "$secret" | base64 | tr -d '\n')" > secrets/upstream_auth
 unset id secret
@@ -108,9 +111,7 @@ plus 65532; with rootless Docker, the first ID of your own user's range
 there plus 65531. The group follows the same rule with `/etc/subgid`. Give
 the file that owner and group instead, still with mode `0400`.
 
-One trailing line ending is removed when the file is read. If the client ID or
-secret contains characters other than letters, digits and `-._~`, check how
-the provider expects them encoded (RFC 6749 §2.3.1).
+One trailing line ending is removed when the file is read.
 
 ### 3.2 The upstream CA file
 
@@ -158,23 +159,6 @@ The deploy files do not mount a CA file; add it yourself.
     value: /run/secrets/relay/upstream-ca.pem
   ```
 
-### 3.3 Authentigate: no credential
-
-Authentigate uses `private_key_jwt`: Forge signs the client assertion and
-sends it in the request body. The relay holds no credential, so remove it
-from the deploy files:
-
-- **Compose:** in `compose.yaml`, remove the `RELAY_UPSTREAM_AUTH_FILE` line,
-  the relay's `secrets` list and the top-level `secrets` block.
-- **Kubernetes:** in `deployment.yaml`, remove the `RELAY_UPSTREAM_AUTH_FILE`
-  variable, the `upstream-auth` volume and its `volumeMounts` entry, and
-  delete `secret.yaml` from your copy.
-
-If you still use a CA file (section 3.2), keep its secret, and in Kubernetes
-the volume, for that file alone. The startup log then shows
-`RELAY_UPSTREAM_AUTH` as `not set`, and `/relay/v1/info` reports
-`"credential_set":false`.
-
 ## 4. Quick start: Docker Compose
 
 `deploy/compose.yaml` runs the relay hardened as `PLAN.md` §10 requires:
@@ -188,12 +172,11 @@ relay. The optional Caddy service (`deploy/Caddyfile`) runs only with the
 1. Copy `deploy/compose.yaml` and `deploy/Caddyfile` from this repository at
    the release tag you deploy into one directory. The commands below run
    there.
-2. In `compose.yaml`, replace the five `"<from the admin page>"` values with
+2. In `compose.yaml`, replace the four `"<from the admin page>"` values with
    the block from section 2. Keep the quotes, so that YAML reads every value
    as a string.
 3. Change the image tag to the release you deploy (section 9).
-4. Create `secrets/upstream_auth` (section 3.1), and for TARA the CA file
-   (section 3.2). For Authentigate, follow section 3.3 instead.
+4. Create `secrets/upstream_auth` (section 3.1) and the CA file (section 3.2).
 5. Start it:
    - **With Caddy in front:** edit `Caddyfile` (section 6.4) and configure
      the required inbound connection limit at your firewall or load balancer
@@ -235,7 +218,7 @@ There is no Ingress: you route your own ingress controller to the Service
 
 1. Copy `deploy/kubernetes/` from this repository at the release tag you
    deploy.
-2. In `deployment.yaml`, replace the five `"<from the admin page>"` values
+2. In `deployment.yaml`, replace the four `"<from the admin page>"` values
    with the block from section 2, and set the image tag (section 9).
 3. Create the Secret from the credential file (section 3.1), then delete
    `secret.yaml` from your copy, so that applying the directory cannot
@@ -246,8 +229,7 @@ There is no Ingress: you route your own ingress controller to the Service
      --from-file=upstream-auth=secrets/upstream_auth
    ```
 
-   The relay reads `/run/secrets/relay/upstream-auth`. For Authentigate,
-   follow section 3.3 instead.
+   The relay reads `/run/secrets/relay/upstream-auth`.
 4. In `networkpolicy.yaml`, replace the namespace `ingress` with your ingress
    controller's namespace and check the DNS selectors. A NetworkPolicy takes
    effect only with a network plugin that enforces it, and it matches IP
@@ -603,11 +585,11 @@ the same request has it in `error`, with the detail in `auth_reason`.
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | no `Relay-*` headers   | The answer came from the proxy or never reached a relay handler: the IP filter, the proxy's timeouts, or a relay the proxy cannot reach.  |
 | `invalid_token`        | The log's `auth_reason` (section 10.4).                                                                                                   |
-| `route_not_allowed`    | `RELAY_ROUTES` differs from the admin-page block (method, path, case), or the request had a query string.                                 |
+| `route_not_allowed`    | The request is not exactly `POST /oidc/token`, including its case, or has a query string.                                                 |
 | `body_too_large`       | A request over 64 KiB. Token requests are a few KB, so check what is calling.                                                            |
 | `internal_error`       | A relay bug (`error` `panic`). Report it with the log line; never include tokens or credentials.                                         |
-| `upstream_unreachable` | DNS for the provider host, the outbound firewall, `HTTPS_PROXY` and `NO_PROXY`, `RELAY_UPSTREAM_CA_FILE` (still the provider's CAs?), or a provider outage. Also a provider answer that is not valid HTTP/1.1 or whose header is over 32 KiB: check `RELAY_UPSTREAM_URL` and the routes, and anything that rewrites answers. |
-| `upstream_too_large`   | A provider answer over 64 KiB. Unusual for token calls; check `RELAY_UPSTREAM_URL` and the routes.                                      |
+| `upstream_unreachable` | DNS for TARA, the outbound firewall, `HTTPS_PROXY` and `NO_PROXY`, `RELAY_UPSTREAM_CA_FILE` (still TARA's CAs?), or an outage. Also an answer that is not valid HTTP/1.1 or whose header is over 32 KiB: check `RELAY_UPSTREAM_URL` and anything that rewrites answers. |
+| `upstream_too_large`   | A TARA answer over 64 KiB. Unusual for token calls; check `RELAY_UPSTREAM_URL`.                                                             |
 | `not_ready`            | The signing keys (section 10.2). `/readyz` also answers it while the relay shuts down.                                                    |
 | `too_busy`             | More than 50 requests at once. Token calls never come that close; look for a flood.                                                      |
 | `upstream_timeout`     | A slow provider, or a firewall that silently drops outbound packets.                                                                      |
@@ -667,8 +649,8 @@ not show at `info`.
 | Field             | Content                                                                                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `request_id`      | The request's `x-b3-traceid` if it is valid (16 or 32 hex characters, not all zero, lowercased), otherwise a random ID. Use it to correlate with Forge. |
-| `method`          | The method, or `other` for one no route can use.                                                                              |
-| `route`           | The matched route (`GET /livez`, `GET /readyz`, `GET /relay/v1/info` or a configured route), or `unmatched`.                  |
+| `method`          | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; every other method is `other`.                                                       |
+| `route`           | The matched route (`GET /livez`, `GET /readyz`, `GET /relay/v1/info` or `POST /oidc/token`), or `unmatched`.                    |
 | `status`          | The status the relay answered with.                                                                                           |
 | `upstream_status` | The provider's status, when it answered.                                                                                      |
 | `duration_ms`     | The time to answer.                                                                                                           |
@@ -680,7 +662,7 @@ The logs never contain request or response bodies, query strings, request
 paths that matched no route, header values other than the validated trace
 ID, the FIT, the credential, raw error text, key IDs or unverified site IDs
 (`PLAN.md` §10). Startup diagnostics follow the same rules. The only URLs in
-the logs are the configured `RELAY_UPSTREAM_URL` (origin and base path) and
+the logs are the configured `RELAY_UPSTREAM_URL` origin and
 `RELAY_JWKS_URL`, in the `starting` summary, which lists the settings one by
 one; neither URL can hold userinfo or a query (`docs/PROTOCOL.md` section
 8). The summary shows the credential only as set or not set.

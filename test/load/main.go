@@ -228,7 +228,7 @@ func load(ctx context.Context, o options, stdout, stderr io.Writer) error {
 // environment and app pins are the synthetic identities the FITs carry
 // (PLAN.md D5, §8).
 func printSettings(w io.Writer, fixtureURL, caPath string) {
-	fmt.Fprintf(w, `Start the relay with these settings (env-file form; quote RELAY_ROUTES in a shell),
+	fmt.Fprintf(w, `Start the relay with these settings (env-file form),
 and restart it for every run: the signing key and the CA are new each time.
 RELAY_UPSTREAM_CA_FILE and SSL_CERT_FILE make it trust the fixture's CA for the upstream
 and the JWKS. Go honours SSL_CERT_FILE on Linux, as in the relay image, but not on macOS
@@ -238,12 +238,11 @@ RELAY_APP_ID=%s
 RELAY_ENVIRONMENT_ID=%s
 RELAY_CLOUD_IDS=%s
 RELAY_UPSTREAM_URL=%s
-RELAY_ROUTES=%s
 RELAY_JWKS_URL=%s
 RELAY_UPSTREAM_CA_FILE=%s
 SSL_CERT_FILE=%s
 
-`, appID, environmentID, cloudID, fixtureURL, route, fixtureURL+jwksPath, caPath, caPath)
+`, appID, environmentID, cloudID, fixtureURL, fixtureURL+jwksPath, caPath, caPath)
 }
 
 func printResult(w io.Writer, r result) {

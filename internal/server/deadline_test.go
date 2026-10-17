@@ -241,14 +241,3 @@ func TestReadBodyKeepsConnectionReusable(t *testing.T) {
 		}
 	}
 }
-
-// TestInfoListsRoutesAsConfigured proves that /relay/v1/info shows each
-// route byte for byte as configured (PLAN.md §4.1). "&" is a valid path
-// character (§5) that json.Marshal would rewrite as an escape.
-func TestInfoListsRoutesAsConfigured(t *testing.T) {
-	r := newRelay(t, relayOptions{env: map[string]string{"RELAY_ROUTES": "POST /a&b"}})
-	got := r.do(t, "GET", "/relay/v1/info", bearer(validFIT(t)), nil)
-	if want := `"routes":["POST /a&b"]`; got.status != http.StatusOK || !strings.Contains(got.body, want) {
-		t.Errorf("got %d %s, want 200 with %s", got.status, got.body, want)
-	}
-}

@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/textproto"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -17,15 +16,8 @@ import (
 // The configuration errors below are fixed strings. Configuration errors
 // never echo values (PLAN.md §8), so none of them includes its input.
 var (
-	errRoute          = errors.New(`want "METHOD /path"`)
-	errRouteMethod    = errors.New("method must be GET, POST, PUT, PATCH or DELETE")
-	errRoutePath      = errors.New("path is not an allowed absolute path")
-	errRouteReserved  = errors.New("path is reserved for the relay")
-	errRouteDuplicate = errors.New("duplicate route")
-	errUpstreamURL    = errors.New("want an https URL with a host and an optional base path, without userinfo, query or fragment")
-	errHeaderName     = errors.New("invalid header name")
+	errUpstreamURL    = errors.New("want an https origin with a host, without a path, userinfo, query or fragment")
 	errHeaderExcluded = errors.New("header may not be configured")
-	errHeaderDup      = errors.New("duplicate header")
 	errCredential     = errors.New(`want "Name: value" with a non-empty value and no control characters`)
 )
 
@@ -33,109 +25,23 @@ var (
 // setting (PLAN.md §8).
 const MaxPort = 65535
 
-// Route is one allowed "METHOD /path" pair from RELAY_ROUTES (PLAN.md §8).
-type Route struct {
-	Method string
-	Path   string
-}
-
-// String returns the route as configured. It is a configured constant, so it
-// is safe as the route log field (PLAN.md §10).
-func (r Route) String() string { return r.Method + " " + r.Path }
-
-// routeMethod lists the methods a route may use. Logs show any other method as
-// "other" (PLAN.md §10).
-func routeMethod(m string) bool {
+// LogMethod returns a fixed HTTP method or "other", so a caller-chosen
+// method never reaches a log line (PLAN.md §10).
+func LogMethod(m string) string {
 	switch m {
 	case "GET", "POST", "PUT", "PATCH", "DELETE":
-		return true
-	}
-	return false
-}
-
-// LogMethod returns m if it is a route method and "other" otherwise, so a
-// caller-chosen method never reaches a log line (PLAN.md §10).
-func LogMethod(m string) string {
-	if routeMethod(m) {
 		return m
 	}
 	return "other"
 }
 
-// ParseRoutes parses the items of RELAY_ROUTES. Each is exactly
-// "METHOD /path" with one space.
-func ParseRoutes(items []string) ([]Route, error) {
-	routes := make([]Route, 0, len(items))
-	for _, item := range items {
-		method, path, ok := strings.Cut(item, " ")
-		switch {
-		case !ok:
-			return nil, errRoute
-		case !routeMethod(method):
-			return nil, errRouteMethod
-		case !ValidPath(path):
-			return nil, errRoutePath
-		case reservedPath(path):
-			return nil, errRouteReserved
-		}
-		r := Route{Method: method, Path: path}
-		if slices.Contains(routes, r) {
-			return nil, errRouteDuplicate
-		}
-		routes = append(routes, r)
-	}
-	return routes, nil
-}
-
-// reservedPath reports the paths the relay answers itself (PLAN.md §4.1). A
-// route that shadowed them would make the health checks or the info endpoint
-// reach the upstream.
-func reservedPath(p string) bool {
-	return p == "/livez" || p == "/readyz" || p == "/relay" || strings.HasPrefix(p, "/relay/")
-}
-
-// ValidPath reports whether p is an absolute path the relay may configure as
-// a route or a base path (PLAN.md §5). It allows only ASCII letters, digits
-// and "-._~!$&'()*+;=:@/". Everything else is refused, notably
-// percent-encoding (so no encoded slash or dot can exist), backslashes,
-// non-ASCII bytes, "?", "#" and the comma that separates RELAY_ROUTES items.
-// It also refuses "//", "..", and "." segments, so an upstream that
-// normalizes paths cannot turn an allowed route into a different one.
-//
-// Requests are matched byte for byte against these validated paths, so a
-// request target that breaks any of these rules can never match a route.
-func ValidPath(p string) bool {
-	if p == "" || p[0] != '/' || strings.Contains(p, "//") || strings.Contains(p, "..") {
-		return false
-	}
-	for i := 0; i < len(p); i++ {
-		c := p[i]
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		case strings.IndexByte("-._~!$&'()*+;=:@/", c) >= 0:
-		default:
-			return false
-		}
-	}
-	for seg := range strings.SplitSeq(p, "/") {
-		if seg == "." {
-			return false
-		}
-	}
-	return true
-}
-
-// Upstream is the validated RELAY_UPSTREAM_URL: an https origin and an
-// optional base path (PLAN.md §5).
-type Upstream struct {
-	origin   string // "https://host[:port]"
-	basePath string // "" or a ValidPath without a trailing slash
-}
+// Upstream is the validated HTTPS origin in RELAY_UPSTREAM_URL (PLAN.md §5).
+type Upstream struct{ origin string }
 
 // ParseUpstream validates RELAY_UPSTREAM_URL. The scheme must be exactly
 // "https"; the URL must have a host, a port from 1 to 65535 if it names one,
-// and no userinfo, query or fragment; the base path obeys ValidPath and has
-// no trailing slash, except that "/" means no base path.
+// and no userinfo, query or fragment. A root slash is normalized away;
+// every other path, including an escaped root slash, is refused.
 func ParseUpstream(s string) (Upstream, error) {
 	if !strings.HasPrefix(s, "https://") || strings.ContainsAny(s, "?#") {
 		return Upstream{}, errUpstreamURL
@@ -147,17 +53,10 @@ func ParseUpstream(s string) (Upstream, error) {
 		u.Host == "" || u.Hostname() == "" || strings.Contains(u.Host, "%") || !ValidURLPort(u.Port()) {
 		return Upstream{}, errUpstreamURL
 	}
-	// EscapedPath is the path as written. ValidPath refuses "%", so it equals
-	// the decoded path, and characters such as "!" that url.Parse would
-	// record in RawPath are judged by the same rule as route paths.
-	base := u.EscapedPath()
-	switch {
-	case base == "" || base == "/":
-		base = ""
-	case strings.HasSuffix(base, "/") || !ValidPath(base):
+	if p := u.EscapedPath(); p != "" && p != "/" {
 		return Upstream{}, errUpstreamURL
 	}
-	return Upstream{origin: "https://" + u.Host, basePath: base}, nil
+	return Upstream{origin: "https://" + u.Host}, nil
 }
 
 // ValidURLPort reports whether p, a port as url.URL.Port returns it, is
@@ -174,22 +73,12 @@ func ValidURLPort(p string) bool {
 	return err == nil && n >= 1 && n <= MaxPort
 }
 
-// URL returns the upstream URL for an allowed route path. The validated base
-// path and route path are concatenated, never resolved as a URL reference,
-// so nothing in a request can change the scheme, host or port (PLAN.md §5).
-func (u Upstream) URL(routePath string) string { return u.origin + u.basePath + routePath }
+// URL returns the fixed TARA token URL. Nothing in a request can change its
+// scheme, host, port or path (PLAN.md §5).
+func (u Upstream) URL() string { return u.origin + TokenPath }
 
-// String returns the configured origin and base path, which contain no
-// secret, for the startup summary and /relay/v1/info.
-func (u Upstream) String() string { return u.origin + u.basePath }
-
-// responseExcluded reports response headers that no allowlist may pass
-// (PLAN.md §5). The relay computes framing and owns the Relay-* headers, so
-// an upstream can never impersonate a relay error. name is canonical.
-func responseExcluded(name string) bool {
-	return name == "Content-Length" || name == "Set-Cookie" || hopByHop(name) ||
-		hasPrefixFold(name, "Relay-")
-}
+// String returns the configured origin for the startup summary and info endpoint.
+func (u Upstream) String() string { return u.origin }
 
 // credentialExcluded reports headers the credential setting may not supply:
 // routing, framing, hop-by-hop, idempotency and relay-owned headers
@@ -218,28 +107,6 @@ func hopByHop(name string) bool {
 
 func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
-}
-
-// ParseResponseHeaders validates RELAY_RESPONSE_HEADERS and returns
-// canonical names. The mandatory exclusions of PLAN.md §5 override the
-// allowlist, so an excluded name is a startup error rather than silently
-// dropped.
-func ParseResponseHeaders(names []string) ([]string, error) {
-	out := make([]string, 0, len(names))
-	for _, n := range names {
-		if !validToken(n) {
-			return nil, errHeaderName
-		}
-		c := textproto.CanonicalMIMEHeaderKey(n)
-		if responseExcluded(c) {
-			return nil, errHeaderExcluded
-		}
-		if slices.Contains(out, c) {
-			return nil, errHeaderDup
-		}
-		out = append(out, c)
-	}
-	return out, nil
 }
 
 // validToken reports whether s is an RFC 9110 token, the syntax of a header

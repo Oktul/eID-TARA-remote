@@ -48,7 +48,7 @@ const (
 	waitLimit = 30 * time.Second
 )
 
-// validEnv returns valid values for the five required settings, with the
+// validEnv returns valid values for the four required settings, with the
 // JWKS pointed at a dead loopback port.
 func validEnv() map[string]string {
 	return map[string]string{
@@ -56,7 +56,6 @@ func validEnv() map[string]string {
 		"RELAY_ENVIRONMENT_ID": envID,
 		"RELAY_CLOUD_IDS":      cloudID,
 		"RELAY_UPSTREAM_URL":   "https://provider.example",
-		"RELAY_ROUTES":         "POST /oidc/token",
 		"RELAY_JWKS_URL":       unreachableJWKS,
 	}
 }
@@ -416,9 +415,9 @@ func TestServeStartsAndStops(t *testing.T) {
 			want := []string{
 				"time", "level", "msg", "version", "go", "upstream_proxy", "jwks_proxy",
 				"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS",
-				"RELAY_UPSTREAM_URL", "RELAY_ROUTES", "RELAY_UPSTREAM_AUTH",
+				"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_AUTH",
 				"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-				"RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
+				"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 				"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 				"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE",
 				"RELAY_LOG_LEVEL",
@@ -779,7 +778,7 @@ func TestHealthcheckIgnoresOtherSettings(t *testing.T) {
 	p := newProbeServer(t, map[string]int{"/livez": 200})
 	env := with(map[string]string{"RELAY_PORT": p.port(t)},
 		"RELAY_APP_ID", marker,
-		"RELAY_ROUTES", marker,
+		"RELAY_ENVIRONMENT_ID", marker,
 		"RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"healthcheck"}, environ(env), &stdout, &stderr); code != 0 {

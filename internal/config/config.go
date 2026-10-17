@@ -48,7 +48,6 @@ const (
 // The defaults of PLAN.md §8. They go through the same parsers as operator
 // input, so a default can never bypass a rule.
 const (
-	defaultResponseHeaders = "Content-Type,Cache-Control,Pragma"
 	defaultPort            = "8080"
 	defaultUpstreamTimeout = "10s"
 	defaultClockSkew       = "10s"
@@ -90,13 +89,11 @@ type Config struct {
 	InstallationIDs []string // RELAY_INSTALLATION_IDS; nil: any installation
 
 	Upstream   forward.Upstream    // RELAY_UPSTREAM_URL
-	Routes     []forward.Route     // RELAY_ROUTES
 	Credential *forward.Credential // RELAY_UPSTREAM_AUTH; nil: no credential header
 	// CredentialFromFile records that the credential came from
 	// RELAY_UPSTREAM_AUTH_FILE, for the startup summary (PLAN.md §10).
 	CredentialFromFile bool
 	UpstreamCAs        *x509.CertPool // RELAY_UPSTREAM_CA_FILE; nil: system roots
-	ResponseHeaders    []string       // RELAY_RESPONSE_HEADERS, canonical names
 
 	Port int // RELAY_PORT
 
@@ -154,10 +151,6 @@ func HealthPort(environ []string) (int, error) {
 // as "set (from file)", "set" or "not set" (S-8); file settings show only
 // whether they are set.
 func (c *Config) Summary() []slog.Attr {
-	routes := make([]string, len(c.Routes))
-	for i, r := range c.Routes {
-		routes[i] = r.String()
-	}
 	installations := "any"
 	if c.InstallationIDs != nil {
 		installations = strings.Join(c.InstallationIDs, ",")
@@ -174,11 +167,9 @@ func (c *Config) Summary() []slog.Attr {
 		slog.String("RELAY_ENVIRONMENT_ID", c.EnvironmentID),
 		slog.String("RELAY_CLOUD_IDS", strings.Join(c.CloudIDs, ",")),
 		slog.String("RELAY_UPSTREAM_URL", c.Upstream.String()),
-		slog.String("RELAY_ROUTES", strings.Join(routes, ",")),
 		slog.String("RELAY_UPSTREAM_AUTH", credential),
 		slog.String("RELAY_UPSTREAM_CA_FILE", state(c.UpstreamCAs != nil, "system bundle")),
 		slog.String("RELAY_INSTALLATION_IDS", installations),
-		slog.String("RELAY_RESPONSE_HEADERS", strings.Join(c.ResponseHeaders, ",")),
 		slog.Int("RELAY_PORT", c.Port),
 		slog.String("RELAY_UPSTREAM_TIMEOUT", c.UpstreamTimeout.String()),
 		slog.String("RELAY_CLOCK_SKEW", c.ClockSkew.String()),
@@ -199,15 +190,15 @@ func state(set bool, unset string) string {
 	return unset
 }
 
-// known reports the 17 settings of the PLAN.md §8 table. Any other RELAY_*
+// known reports the 15 settings of the PLAN.md §8 table. Any other RELAY_*
 // variable, other than a known name plus _FILE, is reported as unknown so
 // that a typo does not go unnoticed.
 func known(name string) bool {
 	switch name {
 	case "RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS",
-		"RELAY_UPSTREAM_URL", "RELAY_ROUTES", "RELAY_UPSTREAM_AUTH",
+		"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_AUTH",
 		"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
-		"RELAY_RESPONSE_HEADERS", "RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
+		"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE",
 		"RELAY_LOG_LEVEL":
@@ -285,11 +276,9 @@ func (e environment) load() (*Config, error) {
 	c.EnvironmentID = l.id("RELAY_ENVIRONMENT_ID")
 	c.CloudIDs = l.ids("RELAY_CLOUD_IDS", true)
 	c.Upstream = l.upstream()
-	c.Routes = l.routes()
 	c.Credential, c.CredentialFromFile = l.credential()
 	c.UpstreamCAs = l.upstreamCAs()
 	c.InstallationIDs = l.ids("RELAY_INSTALLATION_IDS", false)
-	c.ResponseHeaders = l.responseHeaders()
 	c.Port = l.port()
 	c.UpstreamTimeout = l.upstreamTimeout()
 	c.ClockSkew = l.clockSkew()
@@ -496,16 +485,6 @@ func (l *loader) upstream() forward.Upstream {
 	return u
 }
 
-func (l *loader) routes() []forward.Route {
-	const name = "RELAY_ROUTES"
-	v, _ := l.value(name, true)
-	routes, err := forward.ParseRoutes(l.list(name, v))
-	if err != nil {
-		l.fail(name, err.Error())
-	}
-	return routes
-}
-
 func (l *loader) credential() (*forward.Credential, bool) {
 	const name = "RELAY_UPSTREAM_AUTH"
 	v, fromFile := l.value(name, false)
@@ -576,15 +555,6 @@ func parseCAs(data []byte) (*x509.CertPool, string) {
 		return nil, "malformed PEM block"
 	}
 	return pool, ""
-}
-
-func (l *loader) responseHeaders() []string {
-	const name = "RELAY_RESPONSE_HEADERS"
-	h, err := forward.ParseResponseHeaders(l.list(name, l.optional(name, defaultResponseHeaders)))
-	if err != nil {
-		l.fail(name, err.Error())
-	}
-	return h
 }
 
 func (l *loader) port() int {

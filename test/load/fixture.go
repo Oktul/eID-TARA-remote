@@ -42,7 +42,6 @@ const (
 	fitIssuer = "forge/invocation-token" // PLAN.md §4.4
 	jwksPath  = "/.well-known/jwks.json"
 	tokenPath = "/oidc/token"
-	route     = "POST " + tokenPath
 
 	// rsaKeyBits is the smallest modulus the relay accepts (PLAN.md §4.5),
 	// which is also what Atlassian's keys use.

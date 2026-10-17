@@ -39,6 +39,10 @@ var (
 )
 
 const (
+	// TokenPath is TARA's token endpoint, the only forwarded path (PLAN.md §5).
+	TokenPath = "/oidc/token"
+	// TokenRoute is its fixed method and path, safe for logs and the info endpoint.
+	TokenRoute = "POST " + TokenPath
 	// MaxResponseBytes is the upstream body limit, fixed for token calls,
 	// whose answers are a few KB (PLAN.md D8, owner, 2026-10-16).
 	MaxResponseBytes = 64 << 10
@@ -64,14 +68,8 @@ const (
 // Options configures a Forwarder from the validated settings (PLAN.md §8).
 type Options struct {
 	Upstream Upstream
-	// Routes are the allowed routes. Forward refuses any other, so no
-	// request reaches the upstream without one (PLAN.md §4.2).
-	Routes []Route
-	// Credential is set on every upstream request; nil sets none, as for
-	// Authentigate, whose client assertion Forge signs (PLAN.md §5).
+	// Credential is set last on every upstream request (PLAN.md §5).
 	Credential *Credential
-	// ResponseHeaders is the canonical allowlist from ParseResponseHeaders.
-	ResponseHeaders []string
 	// RootCAs are the only CAs trusted for the upstream; nil means the
 	// system bundle (RELAY_UPSTREAM_CA_FILE).
 	RootCAs *x509.CertPool
@@ -86,12 +84,10 @@ type Forwarder struct {
 	client *http.Client
 	// dialer is the one the client's transport dials with, kept so that a
 	// test can check the timeouts that DialContext hides (PLAN.md §5).
-	dialer          *net.Dialer
-	upstream        Upstream
-	routes          []Route
-	credential      *Credential
-	responseHeaders []string // canonical
-	timeout         time.Duration
+	dialer     *net.Dialer
+	upstream   Upstream
+	credential *Credential
+	timeout    time.Duration
 }
 
 // New returns a Forwarder with its own upstream client (PLAN.md §5).
@@ -123,28 +119,11 @@ func New(o Options) *Forwarder {
 			// destination the configuration did not name.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		dialer:          dialer,
-		upstream:        o.Upstream,
-		routes:          o.Routes,
-		credential:      o.Credential,
-		responseHeaders: o.ResponseHeaders,
-		timeout:         o.Timeout,
+		dialer:     dialer,
+		upstream:   o.Upstream,
+		credential: o.Credential,
+		timeout:    o.Timeout,
 	}
-}
-
-// Match returns the route whose method and path equal method and target
-// byte for byte (PLAN.md §4.2 step 3, §5). target is the request target as
-// received, http.Request.RequestURI, never a cleaned or decoded path. Routes
-// are ValidPath paths, so a target with a query, an absolute-form or "*"
-// target, percent-encoding or a dot segment never matches, and HEAD never
-// matches a GET route.
-func Match(routes []Route, method, target string) (Route, bool) {
-	for _, r := range routes {
-		if r.Method == method && r.Path == target {
-			return r, true
-		}
-	}
-	return Route{}, false
 }
 
 // Response is a complete upstream answer. Forward reads it in full, within
@@ -156,13 +135,9 @@ type Response struct {
 	Body   []byte      // exactly as received
 }
 
-// Forward sends one request on route and returns the upstream's answer,
+// Forward sends one POST to TARA's token endpoint and returns its answer,
 // whatever its status from 200 up. in holds the caller's headers; body is
 // the request body, already bounded by the server (PLAN.md §4.2 step 4).
-//
-// route must be one of Options.Routes. Any other route is a programmer
-// error and panics, which the recover middleware answers with 500
-// internal_error (PLAN.md R-6).
 //
 // Forward never retries: a token exchange may have spent its one-time code
 // even if the answer was lost (PLAN.md §5, R-8). Go's transport re-sends a
@@ -171,16 +146,13 @@ type Response struct {
 // only with an Idempotency-Key or X-Idempotency-Key header, which the
 // relay never sends, and a POST with a body has no GetBody (below), so Go
 // never re-sends it.
-func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, body []byte) (*Response, error) {
-	if !slices.Contains(f.routes, route) {
-		panic("forward: route is not an allowed route")
-	}
+func (f *Forwarder) Forward(ctx context.Context, in http.Header, body []byte) (*Response, error) {
 	// One deadline covers the request and the body read (PLAN.md R-2); the
 	// caller's context ends the call early when Forge disconnects (R-3).
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, route.Method, f.upstream.URL(route.Path), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.upstream.URL(), bytes.NewReader(body))
 	if err != nil {
 		// Only an Upstream that did not come from ParseUpstream gets here.
 		return nil, ErrUnreachable
@@ -189,9 +161,7 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 	// callback for token POSTs; without one, Go also skips its resend of a
 	// POST with a body when nothing was written, so a stale idle connection
 	// costs a 502.
-	if route.Method == http.MethodPost {
-		req.GetBody = nil
-	}
+	req.GetBody = nil
 	req.Header = f.requestHeader(in)
 
 	resp, err := f.client.Do(req)
@@ -227,8 +197,8 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 	if len(b) > MaxResponseBytes {
 		return nil, ErrTooLarge
 	}
-	header := make(http.Header, len(f.responseHeaders))
-	copyAllowed(header, resp.Header, f.responseHeaders, responseExcluded)
+	header := make(http.Header, 3)
+	copyAllowed(header, resp.Header, []string{"Content-Type", "Cache-Control", "Pragma"})
 	return &Response{Status: resp.StatusCode, Header: header, Body: b}, nil
 }
 
@@ -239,7 +209,7 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 // one is passed; nothing adds X-Forwarded-For.
 func (f *Forwarder) requestHeader(in http.Header) http.Header {
 	out := make(http.Header, 3)
-	copyAllowed(out, in, []string{"Content-Type", "Accept"}, nil)
+	copyAllowed(out, in, []string{"Content-Type", "Accept"})
 	// Last, and with Set: a caller's header of the same name is replaced,
 	// never joined (PLAN.md §5).
 	if f.credential != nil {
@@ -250,14 +220,11 @@ func (f *Forwarder) requestHeader(in http.Header) http.Header {
 
 // copyAllowed copies the allowlisted fields of src to dst. A name that
 // src's Connection header nominates is hop-by-hop on that connection
-// (RFC 9110 §7.6.1) and is dropped even when allowlisted. excluded, if not
-// nil, repeats the mandatory exclusions of PLAN.md §5 at runtime, so a
-// response allowlist that skipped ParseResponseHeaders still cannot pass
-// them.
-func copyAllowed(dst, src http.Header, allowed []string, excluded func(string) bool) {
+// (RFC 9110 §7.6.1) and is dropped even when allowlisted (PLAN.md §5).
+func copyAllowed(dst, src http.Header, allowed []string) {
 	nominated := connectionNominated(src)
 	for _, name := range allowed {
-		if excluded != nil && excluded(name) || slices.Contains(nominated, name) {
+		if slices.Contains(nominated, name) {
 			continue
 		}
 		if vs := src[name]; len(vs) > 0 {

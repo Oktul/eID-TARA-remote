@@ -34,10 +34,6 @@ import (
 	"time"
 )
 
-// tokenRoute and the codes below stand for a TARA-style authorization-code
-// exchange. Every value is synthetic.
-var tokenRoute = Route{Method: "POST", Path: "/oidc/token"}
-
 const (
 	tokenBody  = "grant_type=authorization_code&code=synthetic-code-1"
 	tokenBody2 = "grant_type=authorization_code&code=synthetic-code-2"
@@ -107,7 +103,7 @@ func newUpstream(t *testing.T, h http.HandlerFunc) *httptest.Server {
 	return s
 }
 
-// newForwarder returns a Forwarder for base with the default allowlists,
+// newForwarder returns a Forwarder for the origin,
 // trusting only the test certificate. edit, if set, changes the options.
 func newForwarder(t *testing.T, base string, edit func(*Options)) *Forwarder {
 	t.Helper()
@@ -116,11 +112,9 @@ func newForwarder(t *testing.T, base string, edit func(*Options)) *Forwarder {
 		t.Fatalf("ParseUpstream: %v", err)
 	}
 	o := Options{
-		Upstream:        u,
-		Routes:          []Route{tokenRoute},
-		ResponseHeaders: []string{"Content-Type", "Cache-Control", "Pragma"},
-		RootCAs:         trustPool(t),
-		Timeout:         testTimeout,
+		Upstream: u,
+		RootCAs:  trustPool(t),
+		Timeout:  testTimeout,
 	}
 	if edit != nil {
 		edit(&o)
@@ -132,9 +126,9 @@ func newForwarder(t *testing.T, base string, edit func(*Options)) *Forwarder {
 	return f
 }
 
-func mustForward(t *testing.T, f *Forwarder, route Route, in http.Header, body string) *Response {
+func mustForward(t *testing.T, f *Forwarder, in http.Header, body string) *Response {
 	t.Helper()
-	resp, err := f.Forward(t.Context(), route, in, []byte(body))
+	resp, err := f.Forward(t.Context(), in, []byte(body))
 	if err != nil {
 		t.Fatalf("Forward: %v", err)
 	}
@@ -252,107 +246,15 @@ func answerRaw(raw string) func(int, net.Conn) {
 	}
 }
 
-func TestMatch(t *testing.T) {
-	routes := []Route{{"POST", "/oidc/token"}, {"GET", "/oidc/jwks"}, {"POST", "/oidc/jwks"}}
-	tests := []struct {
-		name, method, target string
-		want                 int // index into routes, -1 for no match
-	}{
-		{"exact_route", "POST", "/oidc/token", 0},
-		{"exact_get_route", "GET", "/oidc/jwks", 1},
-		{"same_path_other_method_is_its_own_route", "POST", "/oidc/jwks", 2},
-		{"method_not_allowed_for_path", "GET", "/oidc/token", -1},
-		{"head_never_matches_get", "HEAD", "/oidc/jwks", -1},
-		{"method_case_sensitive", "post", "/oidc/token", -1},
-		{"query_refused", "POST", "/oidc/token?client_id=x", -1},
-		{"empty_query_refused", "POST", "/oidc/token?", -1},
-		{"fragment_refused", "POST", "/oidc/token#x", -1},
-		{"trailing_slash", "POST", "/oidc/token/", -1},
-		{"path_case_sensitive", "POST", "/OIDC/token", -1},
-		{"prefix_of_route", "POST", "/oidc", -1},
-		{"route_as_prefix", "POST", "/oidc/token/x", -1},
-		{"double_slash", "POST", "//oidc/token", -1},
-		{"dot_segment", "POST", "/oidc/./token", -1},
-		{"dot_dot_segment", "POST", "/oidc/x/../token", -1},
-		{"encoded_slash", "POST", "/oidc%2Ftoken", -1},
-		{"encoded_dot_dot", "POST", "/oidc/%2e%2e/oidc/token", -1},
-		{"encoded_letter", "POST", "/oidc/%74oken", -1},
-		{"backslash", "POST", "\\oidc\\token", -1},
-		{"absolute_form", "POST", "https://relay.example/oidc/token", -1},
-		{"asterisk_form", "OPTIONS", "*", -1},
-		{"authority_form", "CONNECT", "relay.example:443", -1},
-		{"empty_target", "POST", "", -1},
-		{"trailing_space", "POST", "/oidc/token ", -1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := Match(routes, tt.method, tt.target)
-			switch {
-			case tt.want < 0 && (ok || got != Route{}):
-				t.Errorf("Match = %v, %v; want no match", got, ok)
-			case tt.want >= 0 && (!ok || got != routes[tt.want]):
-				t.Errorf("Match = %v, %v; want %v", got, ok, routes[tt.want])
-			}
-		})
-	}
-	t.Run("no_routes", func(t *testing.T) {
-		if got, ok := Match(nil, "POST", "/oidc/token"); ok {
-			t.Errorf("Match(nil) = %v, true", got)
-		}
-	})
-}
-
-func TestForwardJoinsBasePath(t *testing.T) {
-	tests := []struct{ name, base, want string }{
-		{"no_base_path", "", "/oidc/token"},
-		{"root_means_no_base_path", "/", "/oidc/token"},
-		{"base_path_prefixes_route", "/base/v1", "/base/v1/oidc/token"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h, got := recorder(t, nil)
-			s := newUpstream(t, h)
-			f := newForwarder(t, s.URL+tt.base, nil)
-			mustForward(t, f, tokenRoute, nil, tokenBody)
-			if r := <-got; r.target != tt.want {
-				t.Errorf("upstream target = %q, want %q", r.target, tt.want)
-			}
-		})
-	}
-}
-
-func TestForwardSendsMethodAndBodyUnchanged(t *testing.T) {
-	binary := "\x00\x01\xfe\xff{\"a\":1}\r\n\r\n"
-	tests := []struct {
-		route Route
-		body  string
-	}{
-		{Route{"POST", "/oidc/token"}, tokenBody},
-		{Route{"PUT", "/v1/items"}, binary},
-		{Route{"PATCH", "/v1/items"}, binary},
-		{Route{"DELETE", "/v1/items"}, ""},
-		{Route{"GET", "/oidc/jwks"}, ""},
-	}
+func TestForwardSendsTokenPOSTAndBodyUnchanged(t *testing.T) {
 	h, got := recorder(t, nil)
 	s := newUpstream(t, h)
-	f := newForwarder(t, s.URL, func(o *Options) {
-		o.Routes = nil
-		for _, tt := range tests {
-			o.Routes = append(o.Routes, tt.route)
+	f := newForwarder(t, s.URL, nil)
+	for _, body := range []string{tokenBody, "\x00\x01\xfe\xff{\"a\":1}\r\n\r\n", ""} {
+		mustForward(t, f, nil, body)
+		if r := <-got; r.method != "POST" || r.target != "/oidc/token" || r.body != body {
+			t.Errorf("upstream got %s %s %q, want POST /oidc/token %q", r.method, r.target, r.body, body)
 		}
-	})
-	for _, tt := range tests {
-		t.Run(tt.route.Method, func(t *testing.T) {
-			mustForward(t, f, tt.route, nil, tt.body)
-			r := <-got
-			if r.method != tt.route.Method || r.target != tt.route.Path || r.body != tt.body {
-				t.Errorf("upstream got %s %s %q, want %s %s %q",
-					r.method, r.target, r.body, tt.route.Method, tt.route.Path, tt.body)
-			}
-			if tt.body != "" && r.header.Get("Content-Length") != strconv.Itoa(len(tt.body)) {
-				t.Errorf("upstream Content-Length = %q, want %d", r.header.Get("Content-Length"), len(tt.body))
-			}
-		})
 	}
 }
 
@@ -394,7 +296,7 @@ func TestForwardRequestHeaders(t *testing.T) {
 		h, got := recorder(t, nil)
 		s := newUpstream(t, h)
 		f := newForwarder(t, s.URL, nil)
-		mustForward(t, f, tokenRoute, caller(), tokenBody)
+		mustForward(t, f, caller(), tokenBody)
 		r := <-got
 		want := framing.Clone()
 		want["Content-Type"] = []string{"application/x-www-form-urlencoded"}
@@ -415,7 +317,7 @@ func TestForwardRequestHeaders(t *testing.T) {
 		h, got := recorder(t, nil)
 		s := newUpstream(t, h)
 		f := newForwarder(t, s.URL, nil)
-		mustForward(t, f, tokenRoute, in, tokenBody)
+		mustForward(t, f, in, tokenBody)
 		want := framing.Clone()
 		want["Content-Type"] = []string{"application/x-www-form-urlencoded"}
 		wantUpstreamHeader(t, (<-got).header, want)
@@ -448,7 +350,7 @@ func TestForwardRequestHeaders(t *testing.T) {
 				h, got := recorder(t, nil)
 				s := newUpstream(t, h)
 				f := newForwarder(t, s.URL, func(o *Options) { o.Credential = &tt.cred })
-				mustForward(t, f, tokenRoute, tt.in, tokenBody)
+				mustForward(t, f, tt.in, tokenBody)
 				want := framing.Clone()
 				want[tt.cred.Name] = []string{tt.cred.Value.Reveal()}
 				wantUpstreamHeader(t, (<-got).header, want)
@@ -475,10 +377,9 @@ func TestForwardResponseHeaders(t *testing.T) {
 		"X-Upstream-Detail: internal\r\n" +
 		"Content-Length: 2\r\n\r\n{}"
 	tests := []struct {
-		name      string
-		raw       string
-		allowlist []string // nil: the default
-		want      http.Header
+		name string
+		raw  string
+		want http.Header
 	}{
 		{
 			name: "only_allowlisted_headers_return",
@@ -488,17 +389,6 @@ func TestForwardResponseHeaders(t *testing.T) {
 				"Cache-Control": {"no-store", "max-age=0"},
 				"Pragma":        {"no-cache"},
 			},
-		},
-		{
-			// Options built without ParseResponseHeaders, as a bug might.
-			name: "relay_framing_and_hop_by_hop_headers_never_return_even_if_allowlisted",
-			raw:  spoofing,
-			allowlist: []string{
-				"Relay-Error", "relay-protocol", "Relay-Version", "Relay-Upstream-Status",
-				"Set-Cookie", "Content-Length", "Keep-Alive", "Proxy-Authenticate",
-				"Upgrade", "Connection", "Transfer-Encoding", "Trailer",
-			},
-			want: http.Header{},
 		},
 		{
 			name: "connection_nominated_headers_dropped",
@@ -514,12 +404,8 @@ func TestForwardResponseHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base, _ := rawUpstream(t, answerRaw(tt.raw))
-			f := newForwarder(t, base, func(o *Options) {
-				if tt.allowlist != nil {
-					o.ResponseHeaders = tt.allowlist
-				}
-			})
-			resp := mustForward(t, f, tokenRoute, nil, tokenBody)
+			f := newForwarder(t, base, nil)
+			resp := mustForward(t, f, nil, tokenBody)
 			if !maps.EqualFunc(resp.Header, tt.want, slices.Equal[[]string]) {
 				t.Errorf("response header = %v, want %v", resp.Header, tt.want)
 			}
@@ -540,7 +426,7 @@ func TestForwardReturnsUpstreamStatusAndBody(t *testing.T) {
 				_, _ = io.WriteString(w, body) // a failed write fails the comparison below
 			})
 			f := newForwarder(t, s.URL, nil)
-			resp := mustForward(t, f, tokenRoute, nil, tokenBody)
+			resp := mustForward(t, f, nil, tokenBody)
 			if resp.Status != code || string(resp.Body) != body {
 				t.Errorf("Forward = %d %q, want %d %q", resp.Status, resp.Body, code, body)
 			}
@@ -560,7 +446,7 @@ func TestForwardDoesNotFollowRedirects(t *testing.T) {
 				http.Redirect(w, r, "/elsewhere", code)
 			})
 			f := newForwarder(t, s.URL, nil)
-			resp := mustForward(t, f, tokenRoute, nil, tokenBody)
+			resp := mustForward(t, f, nil, tokenBody)
 			if resp.Status != code {
 				t.Errorf("status = %d, want %d", resp.Status, code)
 			}
@@ -588,15 +474,13 @@ func TestForwardPassesCompressedBodyUnchanged(t *testing.T) {
 		w.Header().Set("Content-Encoding", "gzip")
 		_, _ = w.Write(gz.Bytes()) // a failed write fails the comparison below
 	})
-	f := newForwarder(t, s.URL, func(o *Options) {
-		o.ResponseHeaders = []string{"Content-Type", "Content-Encoding"}
-	})
-	resp := mustForward(t, f, tokenRoute, nil, tokenBody)
+	f := newForwarder(t, s.URL, nil)
+	resp := mustForward(t, f, nil, tokenBody)
 	if !bytes.Equal(resp.Body, gz.Bytes()) {
 		t.Errorf("body = %x, want the gzip bytes %x unchanged", resp.Body, gz.Bytes())
 	}
-	if ce := resp.Header.Get("Content-Encoding"); ce != "gzip" {
-		t.Errorf("Content-Encoding = %q, want gzip", ce)
+	if ce := resp.Header.Get("Content-Encoding"); ce != "" {
+		t.Errorf("Content-Encoding = %q, want no non-allowlisted header", ce)
 	}
 }
 
@@ -630,7 +514,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 				_, _ = io.WriteString(w, tt.body[1:])
 			})
 			f := newForwarder(t, s.URL, nil)
-			resp, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+			resp, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 			wantErr(t, err, tt.want)
 			if err == nil && string(resp.Body) != tt.body {
 				t.Errorf("body = %q, want %q", resp.Body, tt.body)
@@ -650,7 +534,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 			}
 		})
 		f := newForwarder(t, s.URL, nil)
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrTooLarge)
 	})
 	t.Run("declared_oversize_body_is_not_read", func(t *testing.T) {
@@ -666,7 +550,7 @@ func TestForwardResponseSizeLimit(t *testing.T) {
 			<-r.Context().Done() // until the relay drops the connection
 		})
 		f := newForwarder(t, s.URL, nil)
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrTooLarge)
 	})
 }
@@ -676,7 +560,7 @@ func TestForwardUnreachable(t *testing.T) {
 		var hits atomic.Int32
 		s := newUpstream(t, func(http.ResponseWriter, *http.Request) { hits.Add(1) })
 		f := newForwarder(t, s.URL, func(o *Options) { o.RootCAs = x509.NewCertPool() })
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 		if n := hits.Load(); n != 0 {
 			t.Errorf("upstream got %d requests over an untrusted connection, want 0", n)
@@ -692,7 +576,7 @@ func TestForwardUnreachable(t *testing.T) {
 			t.Fatal(err)
 		}
 		f := newForwarder(t, "https://"+addr, nil)
-		_, err = f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err = f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 	})
 	t.Run("closed_during_tls_handshake", func(t *testing.T) {
@@ -715,21 +599,21 @@ func TestForwardUnreachable(t *testing.T) {
 			wg.Wait()
 		})
 		f := newForwarder(t, "https://"+ln.Addr().String(), nil)
-		_, err = f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err = f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 	})
 	t.Run("malformed_response_text_never_returned", func(t *testing.T) {
 		// Go's error for this answer quotes it; Forward must not.
 		base, _ := rawUpstream(t, answerRaw("garbage "+secretMarker+"\r\n\r\n"))
 		f := newForwarder(t, base, nil)
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 	})
 	t.Run("response_header_over_limit", func(t *testing.T) {
 		raw := "HTTP/1.1 200 OK\r\nX-Padding: " + strings.Repeat("a", 40<<10) + "\r\nContent-Length: 0\r\n\r\n"
 		base, _ := rawUpstream(t, answerRaw(raw))
 		f := newForwarder(t, base, nil)
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 	})
 	// Go returns these as final answers. The relay asks for no upgrade and
@@ -742,7 +626,7 @@ func TestForwardUnreachable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			base, _ := rawUpstream(t, answerRaw(tt.raw))
 			f := newForwarder(t, base, nil)
-			_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+			_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 			wantErr(t, err, ErrUnreachable)
 		})
 	}
@@ -750,14 +634,14 @@ func TestForwardUnreachable(t *testing.T) {
 		raw := "HTTP/1.1 200 OK\r\nX-Padding: " + strings.Repeat("a", 24<<10) + "\r\nContent-Length: 0\r\n\r\n"
 		base, _ := rawUpstream(t, answerRaw(raw))
 		f := newForwarder(t, base, nil)
-		mustForward(t, f, tokenRoute, nil, tokenBody)
+		mustForward(t, f, nil, tokenBody)
 	})
 	t.Run("transport_error_text_never_returned", func(t *testing.T) {
 		f := newForwarder(t, "https://provider.example", nil)
 		f.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New(secretMarker)
 		})
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 	})
 }
@@ -769,7 +653,7 @@ func TestForwardResponseVersion(t *testing.T) {
 		t.Run(proto, func(t *testing.T) {
 			base, _ := rawUpstream(t, answerRaw(proto+" 200 OK\r\nContent-Length: 2\r\n\r\n{}"))
 			f := newForwarder(t, base, nil)
-			resp, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+			resp, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 			if proto != "HTTP/1.1" {
 				wantErr(t, err, ErrUnreachable)
 				return
@@ -805,7 +689,7 @@ func TestTokenBodyHasNoReplayCallback(t *testing.T) {
 		}
 		return nil, errors.New("synthetic upstream failure")
 	})
-	_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+	_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 	wantErr(t, err, ErrUnreachable)
 }
 
@@ -819,7 +703,7 @@ func inMemoryForwarder(t *testing.T, s *httptest.Server, timeout time.Duration) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: timeout})
+	f := New(Options{Upstream: u, Timeout: timeout})
 	f.client.Transport.(*http.Transport).DialTLSContext = s.Client().Transport.(*http.Transport).DialTLSContext
 	t.Cleanup(f.client.CloseIdleConnections)
 	return f
@@ -861,7 +745,7 @@ func TestForwardTimeout(t *testing.T) {
 					defer cancel()
 				}
 				start := time.Now()
-				_, err := f.Forward(ctx, tokenRoute, nil, []byte(tokenBody))
+				_, err := f.Forward(ctx, nil, []byte(tokenBody))
 				wantErr(t, err, ErrTimeout)
 				if elapsed := time.Since(start); elapsed != tt.want {
 					t.Errorf("Forward returned after %v, want %v", elapsed, tt.want)
@@ -884,7 +768,7 @@ func TestForwardClosesSilentHandshake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f := New(Options{Upstream: u, Routes: []Route{tokenRoute}, Timeout: time.Second})
+		f := New(Options{Upstream: u, Timeout: time.Second})
 		tr := f.client.Transport.(*http.Transport)
 		// The pipe stands for the upstream, whatever proxy the test
 		// environment sets.
@@ -905,7 +789,7 @@ func TestForwardClosesSilentHandshake(t *testing.T) {
 		// so the bubble can finish after the failure is reported.
 		t.Cleanup(tr.CloseIdleConnections)
 
-		_, err = f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err = f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrTimeout)
 		select {
 		case d := <-closedAfter:
@@ -931,7 +815,7 @@ func TestForwardCallerCancelCancelsUpstream(t *testing.T) {
 		defer cancel()
 		time.AfterFunc(2*time.Second, cancel) // Forge disconnects
 		start := time.Now()
-		_, err := f.Forward(ctx, tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(ctx, nil, []byte(tokenBody))
 		wantErr(t, err, ErrCanceled)
 		if elapsed := time.Since(start); elapsed != 2*time.Second {
 			t.Errorf("Forward returned after %v, want 2s", elapsed)
@@ -969,7 +853,7 @@ func TestForwardUnrequestedUpgradeEndsAtOnce(t *testing.T) {
 		}))
 		f := inMemoryForwarder(t, s, time.Minute)
 		start := time.Now()
-		_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+		_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 		wantErr(t, err, ErrUnreachable)
 		if elapsed := time.Since(start); elapsed != 0 {
 			t.Errorf("Forward returned after %v, want at once", elapsed)
@@ -1021,12 +905,9 @@ func tracedConns(ctx context.Context) (context.Context, func() []bool) {
 // TestForwardDoesNotReplayTokenPOST proves PLAN.md §5 R-8: a token POST that
 // reached the upstream is sent exactly once, even when its answer is lost.
 func TestForwardDoesNotReplayTokenPOST(t *testing.T) {
-	jwksRoute := Route{Method: "GET", Path: "/oidc/jwks"}
 	tests := []struct {
 		name     string
-		route    Route
 		answered int // requests answered on the first connection before one is lost
-		edit     func(*Options)
 		in       http.Header
 		// For the last call: its error, the connections it took and every
 		// request the upstream saw over the whole test.
@@ -1035,52 +916,37 @@ func TestForwardDoesNotReplayTokenPOST(t *testing.T) {
 		wantSeen  []string
 	}{
 		{
-			name: "fresh_connection", route: tokenRoute, answered: 0,
+			name: "fresh_connection", answered: 0,
 			wantErr: ErrUnreachable, wantConns: []bool{false},
 			wantSeen: []string{"POST /oidc/token " + tokenBody},
 		},
 		{
-			name: "reused_connection", route: tokenRoute, answered: 1,
+			name: "reused_connection", answered: 1,
 			wantErr: ErrUnreachable, wantConns: []bool{true},
 			wantSeen: []string{"POST /oidc/token " + tokenBody, "POST /oidc/token " + tokenBody2},
 		},
 		{
 			// Go treats a POST with either header as idempotent and replays
 			// it, so they must never be sent.
-			name: "reused_connection_idempotency_headers_dropped", route: tokenRoute, answered: 1,
+			name: "reused_connection_idempotency_headers_dropped", answered: 1,
 			in:      http.Header{"Idempotency-Key": {"synthetic"}, "X-Idempotency-Key": {"synthetic"}},
 			wantErr: ErrUnreachable, wantConns: []bool{true},
 			wantSeen: []string{"POST /oidc/token " + tokenBody, "POST /oidc/token " + tokenBody2},
-		},
-		{
-			// Harness check: the same setup does show a replay, which Go's
-			// transport makes for an idempotent GET (PLAN.md §5 allows it).
-			name: "harness_sees_transport_replay_of_get", route: jwksRoute, answered: 1,
-			wantErr: nil, wantConns: []bool{true, false},
-			wantSeen: []string{"GET /oidc/jwks ", "GET /oidc/jwks ", "GET /oidc/jwks "},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			seen := make(chan string, 16)
 			base, stop := rawUpstream(t, dropAfter(tt.answered, seen))
-			f := newForwarder(t, base, func(o *Options) {
-				o.Routes = []Route{tt.route}
-				if tt.edit != nil {
-					tt.edit(o)
-				}
-			})
+			f := newForwarder(t, base, nil)
 			bodies := []string{tokenBody, tokenBody2}
-			if tt.route.Method == "GET" {
-				bodies = []string{"", ""}
-			}
 			for i := range tt.answered {
-				if resp := mustForward(t, f, tt.route, tt.in, bodies[i]); resp.Status != http.StatusOK {
+				if resp := mustForward(t, f, tt.in, bodies[i]); resp.Status != http.StatusOK {
 					t.Fatalf("call %d: status %d, want 200", i+1, resp.Status)
 				}
 			}
 			ctx, conns := tracedConns(t.Context())
-			_, err := f.Forward(ctx, tt.route, tt.in, []byte(bodies[tt.answered]))
+			_, err := f.Forward(ctx, tt.in, []byte(bodies[tt.answered]))
 			wantErr(t, err, tt.wantErr)
 			if got := conns(); !slices.Equal(got, tt.wantConns) {
 				t.Errorf("connections reused = %v, want %v", got, tt.wantConns)
@@ -1106,9 +972,9 @@ func TestForwardReusesConnections(t *testing.T) {
 	h, _ := recorder(t, nil)
 	s := newUpstream(t, h)
 	f := newForwarder(t, s.URL, nil)
-	mustForward(t, f, tokenRoute, nil, tokenBody)
+	mustForward(t, f, nil, tokenBody)
 	ctx, conns := tracedConns(t.Context())
-	if _, err := f.Forward(ctx, tokenRoute, nil, []byte(tokenBody2)); err != nil {
+	if _, err := f.Forward(ctx, nil, []byte(tokenBody2)); err != nil {
 		t.Fatalf("Forward: %v", err)
 	}
 	if got := conns(); !slices.Equal(got, []bool{true}) {
@@ -1124,7 +990,7 @@ func TestForwardSpeaksOnlyHTTP1(t *testing.T) {
 	s.StartTLS()
 
 	// Harness check: a client that offers HTTP/2 gets it from this upstream.
-	resp, err := s.Client().Post(s.URL+tokenRoute.Path, "text/plain", strings.NewReader(tokenBody))
+	resp, err := s.Client().Post(s.URL+TokenPath, "text/plain", strings.NewReader(tokenBody))
 	if err != nil {
 		t.Fatalf("harness request: %v", err)
 	}
@@ -1134,37 +1000,9 @@ func TestForwardSpeaksOnlyHTTP1(t *testing.T) {
 	}
 
 	f := newForwarder(t, s.URL, nil)
-	mustForward(t, f, tokenRoute, nil, tokenBody)
+	mustForward(t, f, nil, tokenBody)
 	if r := <-got; r.proto != 1 {
 		t.Errorf("relay spoke HTTP/%d to the upstream, want 1 (PLAN.md §7)", r.proto)
-	}
-}
-
-func TestForwardRefusesUnconfiguredRoute(t *testing.T) {
-	var hits atomic.Int32
-	s := newUpstream(t, func(http.ResponseWriter, *http.Request) { hits.Add(1) })
-	f := newForwarder(t, s.URL, nil)
-	tests := []struct {
-		name  string
-		route Route
-	}{
-		{"zero_route", Route{}},
-		{"other_method", Route{"GET", "/oidc/token"}},
-		{"other_path", Route{"POST", "/oidc/token/"}},
-		{"unlisted_route", Route{"POST", "/admin"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("Forward(%v) did not panic", tt.route)
-				}
-			}()
-			_, _ = f.Forward(t.Context(), tt.route, nil, nil) // must panic before returning
-		})
-	}
-	if n := hits.Load(); n != 0 {
-		t.Errorf("upstream got %d requests, want 0", n)
 	}
 }
 
@@ -1178,8 +1016,8 @@ func TestForwardInvalidUpstreamFailsClosed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New(Options{Upstream: tt.upstream, Routes: []Route{tokenRoute}, Timeout: testTimeout})
-			_, err := f.Forward(t.Context(), tokenRoute, nil, []byte(tokenBody))
+			f := New(Options{Upstream: tt.upstream, Timeout: testTimeout})
+			_, err := f.Forward(t.Context(), nil, []byte(tokenBody))
 			wantErr(t, err, ErrUnreachable)
 		})
 	}
@@ -1224,7 +1062,7 @@ func TestProxyInUse(t *testing.T) {
 // behaviour tests cannot tell apart from Go's defaults.
 func TestNewClientSettings(t *testing.T) {
 	pool := x509.NewCertPool()
-	f := New(Options{Routes: []Route{tokenRoute}, RootCAs: pool})
+	f := New(Options{RootCAs: pool})
 	tr, ok := f.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport is %T", f.client.Transport)
