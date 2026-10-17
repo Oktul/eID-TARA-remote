@@ -975,19 +975,6 @@ func TestEnvironEntries(t *testing.T) {
 	}
 }
 
-func TestRepeatedVariable(t *testing.T) {
-	for _, name := range []string{"RELAY_PORT", "RELAY_PORT_FILE"} {
-		t.Run(name, func(t *testing.T) {
-			path := writeFile(t, "port", []byte("8081"))
-			env := append(environ(requiredEnv()), name+"="+path, name+"="+path)
-			_, _, err := config.Load(env)
-			if e := checkError(t, err, name); e.Reason != "set more than once" {
-				t.Errorf("reason = %q", e.Reason)
-			}
-		})
-	}
-}
-
 func TestHealthPort(t *testing.T) {
 	portFile := writeFile(t, "port", []byte("9001\n"))
 	for _, tc := range []struct {

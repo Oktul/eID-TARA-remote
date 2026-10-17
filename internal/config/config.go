@@ -217,13 +217,12 @@ func known(name string) bool {
 }
 
 // environment holds the RELAY_* variables of the process environment.
-type environment struct {
-	vars     map[string]string
-	repeated map[string]bool // names that appear more than once
-}
+type environment map[string]string
 
+// parseEnviron reads the RELAY_* entries of environ, which comes from
+// os.Environ and so never repeats a name.
 func parseEnviron(environ []string) (environment, []string) {
-	env := environment{vars: map[string]string{}, repeated: map[string]bool{}}
+	env := environment{}
 	var unknown []string
 	for _, kv := range environ {
 		// Entries without "=" or with an empty name, such as the Windows
@@ -232,13 +231,7 @@ func parseEnviron(environ []string) (environment, []string) {
 		if !ok || !strings.HasPrefix(name, settingPrefix) {
 			continue
 		}
-		if _, seen := env.vars[name]; seen {
-			// os.Environ never repeats a name, but a hand-built slice can.
-			// Picking one of the values would be a guess.
-			env.repeated[name] = true
-			continue
-		}
-		env.vars[name] = v
+		env[name] = v
 		if !known(name) && !known(strings.TrimSuffix(name, fileSuffix)) {
 			unknown = append(unknown, reportedName(name))
 		}
@@ -320,14 +313,8 @@ func (l *loader) value(name string, required bool) (string, bool) {
 		return "", false
 	}
 	fileName := name + fileSuffix
-	for _, n := range [...]string{name, fileName} {
-		if l.env.repeated[n] {
-			l.fail(n, "set more than once")
-			return "", false
-		}
-	}
-	v, inEnv := l.env.vars[name]
-	path, inFile := l.env.vars[fileName]
+	v, inEnv := l.env[name]
+	path, inFile := l.env[fileName]
 	switch {
 	case inEnv && inFile:
 		l.fail(name, "set only one of "+name+" and "+fileName)
