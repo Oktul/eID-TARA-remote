@@ -1,25 +1,20 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-17: Phases 1 and 2 implemented on review branches, ahead of
-Phase 0 (D10), and checked locally (§16). Phase 0 ran on 2026-10-16: every
-gate passed except PINNED, which needs a site with data residency (§14).
-Not tagged, pushed or published; no workflow has run, since the repository
-has no remote yet. All three review rounds are done for every change on main,
-Phase 0 fixes included, with no open code findings: `codex/review-phase-0-results`
-is the whole line, and `main` is fast-forwarded to it after the owner's
-one-time history rewrite (§16). Still open: the PINNED
+_Status 2026-10-17: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+and checked locally (§16). Phase 0 ran on 2026-10-16: every gate passed
+except PINNED, which needs a site with data residency (§14). All three
+review rounds are done for every code change on `main`, with no open
+findings; this docs-only status update went in at the owner's word.
+The last of them came from `claude/simplify` and `codex/simplify-tara`.
+They removed the site fallback and built-in TLS, refused exponent dates,
+fixed the body, concurrency and request-header limits, dropped unreachable
+guards and local parsers, and narrowed forwarding to TARA's token endpoint
+(owner decisions in §4.4, §5, §6, §8, D8 and D11). The owner fast-forwarded
+`main` to them on 2026-10-17. Not tagged, pushed or published; no workflow
+has run, since the repository has no remote yet. Still open: the PINNED
 gate, source CI on GitHub and the Phase 2 release verifications. Adding
 `remotes` to the Forge app's main line still needs the owner's approval
-(Oktul eID SSO, `PLAN.md` §4.7). The `claude/simplify` branch
-(2026-10-16) removes the site fallback and built-in TLS, refuses exponent
-dates, fixes the body, concurrency and request-header limits, shortens
-config loading and drops three guards that no caller can reach (owner
-decisions in §4.4, §5, §6, §8 and D8). Codex's round 2 found no defects on
-that branch (2026-10-17). The follow-up `codex/simplify-tara` removes test-only
-limit options and local number parsers and narrows forwarding to TARA's
-single token endpoint (D11). Claude's round 3 (2026-10-17) found no
-defects on either branch; only comments changed. Both await the owner's
-fast-forward of `main`._
+(Oktul eID SSO, `PLAN.md` §4.7)._
 
 ## 1. What it is
 
@@ -1171,8 +1166,8 @@ image builds and passes the repository smoke test. Compose configuration
 passes with and without Caddy. Independent agents reviewed the runtime
 changes without open findings or disagreements. Claude's round 3
 (2026-10-17) checked both commits against TARA's token request
-specification and found no defects; it fixed comments only. No merge, push
-or repository tag was performed.
+specification and found no defects; it fixed comments only. The owner
+fast-forwarded `main` to it on 2026-10-17; nothing is pushed or tagged.
 
 **Code-convention review fixes (owner-approved, 2026-10-15):**
 
