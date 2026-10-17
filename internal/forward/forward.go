@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"io"
-	"math"
 	"net"
 	"net/http"
 	"net/textproto"
@@ -226,12 +225,8 @@ func (f *Forwarder) Forward(ctx context.Context, route Route, in http.Header, bo
 		return nil, ErrTooLarge
 	}
 	// One byte more than the limit tells an oversize body from one that
-	// fits exactly; the guard keeps the sum from overflowing.
-	limit := f.maxResponseBytes
-	if limit < math.MaxInt64 {
-		limit++
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	// fits exactly.
+	b, err := io.ReadAll(io.LimitReader(resp.Body, f.maxResponseBytes+1))
 	if err != nil {
 		return nil, classify(ctx)
 	}

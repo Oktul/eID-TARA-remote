@@ -12,8 +12,9 @@ gate, source CI on GitHub and the Phase 2 release verifications. Adding
 `remotes` to the Forge app's main line still needs the owner's approval
 (Oktul eID SSO, `PLAN.md` §4.7). The `claude/simplify` branch
 (2026-10-16) removes the site fallback and built-in TLS, refuses exponent
-dates, fixes the body, concurrency and request-header limits and shortens
-config loading (owner decisions in §4.4, §5, §6, §8 and D8); it
+dates, fixes the body, concurrency and request-header limits, shortens
+config loading and drops three guards that no caller can reach (owner
+decisions in §4.4, §5, §6, §8 and D8); it
 has had review round 1 only._
 
 ## 1. What it is
