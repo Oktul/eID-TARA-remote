@@ -39,9 +39,11 @@ var (
 )
 
 const (
-	// TokenPath is TARA's token endpoint, the only forwarded path (PLAN.md §5).
+	// TokenPath is TARA's token endpoint, the only forwarded path
+	// (PLAN.md §5, D11).
 	TokenPath = "/oidc/token"
-	// TokenRoute is its fixed method and path, safe for logs and the info endpoint.
+	// TokenRoute is its fixed method and path, safe for logs and the info
+	// endpoint.
 	TokenRoute = "POST " + TokenPath
 	// MaxResponseBytes is the upstream body limit, fixed for token calls,
 	// whose answers are a few KB (PLAN.md D8, owner, 2026-10-16).
@@ -68,7 +70,8 @@ const (
 // Options configures a Forwarder from the validated settings (PLAN.md §8).
 type Options struct {
 	Upstream Upstream
-	// Credential is set last on every upstream request (PLAN.md §5).
+	// Credential is set last on every upstream request; nil sets none
+	// (PLAN.md §5).
 	Credential *Credential
 	// RootCAs are the only CAs trusted for the upstream; nil means the
 	// system bundle (RELAY_UPSTREAM_CA_FILE).

@@ -303,12 +303,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	s.writeUpstream(w, resp)
 }
 
-// readBody reads the request body up to MaxRequestBytes. http.MaxBytesReader, unlike a
-// plain io.LimitReader, also tells net/http that the limit was hit, so it
-// half-closes the connection after the 413 and waits briefly: bytes the
-// client is still sending cannot reset the connection before it has read
-// the 413. Only net/http's own ResponseWriter takes that signal, so it gets
-// that one, not the statusWriter.
+// readBody reads the request body up to MaxRequestBytes.
+// http.MaxBytesReader, unlike a plain io.LimitReader, also tells net/http
+// that the limit was hit, so it half-closes the connection after the 413 and
+// waits briefly: bytes the client is still sending cannot reset the
+// connection before it has read the 413. Only net/http's own ResponseWriter
+// takes that signal, so it gets that one, not the statusWriter.
 func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.ContentLength > MaxRequestBytes {
 		return nil, &http.MaxBytesError{Limit: MaxRequestBytes}

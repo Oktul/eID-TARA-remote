@@ -17,7 +17,9 @@ config loading and drops three guards that no caller can reach (owner
 decisions in §4.4, §5, §6, §8 and D8). Codex's round 2 found no defects on
 that branch (2026-10-17). The follow-up `codex/simplify-tara` removes test-only
 limit options and local number parsers and narrows forwarding to TARA's
-single token endpoint (D11); it awaits Claude's final review._
+single token endpoint (D11). Claude's round 3 (2026-10-17) found no
+defects on either branch; only comments changed. Both await the owner's
+fast-forward of `main`._
 
 ## 1. What it is
 
@@ -1167,8 +1169,10 @@ All five required Go checks pass in order, including race tests in the
 pinned Go 1.27.2 Linux builder; no vulnerabilities found. The linux/amd64
 image builds and passes the repository smoke test. Compose configuration
 passes with and without Caddy. Independent agents reviewed the runtime
-changes without open findings or disagreements. Claude's final review is
-still required; no merge, push or repository tag was performed.
+changes without open findings or disagreements. Claude's round 3
+(2026-10-17) checked both commits against TARA's token request
+specification and found no defects; it fixed comments only. No merge, push
+or repository tag was performed.
 
 **Code-convention review fixes (owner-approved, 2026-10-15):**
 

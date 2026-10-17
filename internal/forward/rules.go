@@ -77,7 +77,8 @@ func ValidURLPort(p string) bool {
 // scheme, host, port or path (PLAN.md §5).
 func (u Upstream) URL() string { return u.origin + TokenPath }
 
-// String returns the configured origin for the startup summary and info endpoint.
+// String returns the configured origin, for the startup summary and the
+// info endpoint.
 func (u Upstream) String() string { return u.origin }
 
 // credentialExcluded reports headers the credential setting may not supply:

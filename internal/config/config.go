@@ -68,7 +68,7 @@ const (
 	maxIDBytes = 256
 
 	// maxReportedNameBytes bounds an unknown name that Load reports as is;
-	// the longest known name with _FILE has 29 bytes.
+	// the longest known name with _FILE has 27 bytes.
 	maxReportedNameBytes = 64
 	// malformedName replaces an unknown name that cannot be a setting name.
 	malformedName = "RELAY_* (malformed name)"
