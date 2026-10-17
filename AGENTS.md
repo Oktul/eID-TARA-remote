@@ -1,8 +1,10 @@
 # Project notes (read first)
 
 This repository is the relay for the Oktul eID SSO Forge app: a small Go
-container that a customer runs so the app can call an IP-allowlisted login
-provider from the customer's static IP. Read `PLAN.md` before doing anything.
+container that a customer runs so the app can make TARA token exchanges
+(`POST /oidc/token`) from the customer's static IP, which TARA production
+allowlists. It forwards nothing else (`PLAN.md` D11). Read `PLAN.md` before
+doing anything.
 
 Hard constraints (from `PLAN.md`; change them only when the owner says so):
 

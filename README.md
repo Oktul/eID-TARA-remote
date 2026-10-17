@@ -7,7 +7,7 @@ and the TARA credential stays in the customer's relay, never in Forge or
 with Oktul.
 
 ```
-Forge app ──HTTPS──▶ reverse proxy ──HTTP──▶ relay ──HTTPS──▶ provider token endpoint
+Forge app ──HTTPS──▶ reverse proxy ──HTTP──▶ relay ──HTTPS──▶ TARA POST /oidc/token
                      (TLS, IP filter)          └──HTTPS──▶ Atlassian signing keys (JWKS)
 ```
 

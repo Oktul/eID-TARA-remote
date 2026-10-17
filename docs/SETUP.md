@@ -13,7 +13,7 @@ endpoint from your static IP, and keeps the TARA credential on your side
 > not decided yet (`PLAN.md` §15 Q6).
 
 ```
-Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ──HTTPS──▶ provider token endpoint
+Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ──HTTPS──▶ TARA POST /oidc/token
                      (TLS, IP filter)              │
                                                    └──HTTPS──▶ Atlassian signing keys (JWKS)
 ```
