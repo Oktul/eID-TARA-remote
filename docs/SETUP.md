@@ -55,7 +55,7 @@ RELAY_UPSTREAM_URL=https://tara.ria.ee
   forwards only `POST /oidc/token`.
 - `RELAY_INSTALLATION_IDS` is an optional extra pin on the installation. A
   reinstall changes the installation ID, so you must then update it.
-- The only thing you add is the credential (section 3). Every setting, its
+- You add only the credential and TARA's CA file (section 3). Every setting, its
   default and its rules are listed in `docs/PROTOCOL.md` section 8.
 
 ## 3. The provider credential
@@ -98,8 +98,8 @@ sudo chmod 0400 secrets/upstream_auth
 
 Compose mounts the file as it is, with the owner and mode it has on the host,
 and the relay runs as user 65532 without capabilities. A file owned by
-another user with mode `0600` stops startup with
-`RELAY_UPSTREAM_AUTH_FILE: file is not readable`. For Kubernetes, skip the
+another user with mode `0600` stops startup with `invalid configuration`,
+setting `RELAY_UPSTREAM_AUTH_FILE`, reason `file is not readable`. For Kubernetes, skip the
 last two commands: `kubectl` reads the file as you, and the Deployment sets
 the mode of the mounted Secret.
 

@@ -16,9 +16,9 @@ Hard constraints (from `PLAN.md`; change them only when the owner says so):
   reason recorded in `PLAN.md` §7.
 - **Fail closed.** No request reaches the upstream without a valid FIT, an
   allowed route and the site and environment pins (`PLAN.md` §4). A site
-  mismatch must never fall back to installation membership; missing-site
-  fallback needs unambiguous, recorded Phase 0 evidence (§4.4, §14). Reject
-  expired signing-key snapshots (§4.5).
+  mismatch or a missing invocation site is refused; installation contexts
+  never stand in for the signed site (§4.4). Reject expired signing-key
+  snapshots (§4.5).
 - **Never log** request or response bodies, raw rejected paths, query strings,
   header values, the FIT or the upstream credential. The sole header-derived
   exception is the validated trace ID defined in `PLAN.md` §10. Use matched

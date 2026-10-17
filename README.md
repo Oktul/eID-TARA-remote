@@ -43,7 +43,8 @@ below.
    egress ranges and caps inbound connections (§6.3). With the bundled
    Caddy, set your DNS name and the IP filter in `Caddyfile` (§6.4), then run
    `docker compose --profile caddy up -d`; behind your own proxy, run
-   `docker compose up -d`. Never publish port 8080. Kubernetes: §5 and §6.5.
+   `docker compose up -d`. Never publish port 8080 on a public address.
+   Kubernetes: §5 and §6.5.
 6. **Check:** `docker compose exec relay /relay healthcheck --ready`, then
    enter the relay URL on the admin page (§8).
 

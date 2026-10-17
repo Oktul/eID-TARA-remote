@@ -3,8 +3,8 @@
 The relay holds a customer's login credential and parses tokens from callers
 it has not yet authenticated, so nearly every line is security code.
 `PLAN.md` says what the relay does; this file says how its code is written.
-Report vulnerabilities privately as described in `SECURITY.md`, never in a
-public issue.
+Report vulnerabilities privately as described in `SECURITY.md` (added at
+publication, `PLAN.md` §11), never in a public issue.
 
 ## Principles
 

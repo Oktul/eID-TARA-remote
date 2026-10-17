@@ -9,11 +9,13 @@ findings. The last code changes came from `claude/simplify` and
 refused exponent dates, fixed the body, concurrency and request-header
 limits, dropped unreachable guards and local parsers, and narrowed
 forwarding to TARA's token endpoint (owner decisions in §4.4, §5, §6, §8, D8
-and D11). The owner fast-forwarded `main` to them on 2026-10-17, then to two
-docs-only commits without review: this status, and the TARA wording of
-`AGENTS.md`, §1 and the diagrams. Not tagged, pushed or published; no
-workflow has run, since the repository has no remote yet. Still open: the
-PINNED gate, source CI on GitHub and the Phase 2 release verifications.
+and D11). The owner fast-forwarded `main` to them on 2026-10-17, then to
+docs-only commits without review: this status, the TARA wording of
+`AGENTS.md`, §1 and the diagrams, and a pass that brought every document in
+line with the code. All other branches were deleted the same day. Not
+tagged, pushed or published; no workflow has run, since the repository has
+no remote yet. Still open: the PINNED gate, source CI on GitHub and the
+Phase 2 release verifications.
 Adding `remotes` to the Forge app's main line still needs the owner's
 approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
@@ -56,7 +58,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | D7  | **An upstream answer always comes back as `200` with the upstream status in `Relay-Upstream-Status`.**                 | Keeps upstream status distinct from relay errors: a provider's `401 invalid_client` must not look like the relay's `401 invalid_token`. Phase 0 found that backend `invokeRemote` also returns non-2xx answers intact (§14, 2026-10-16); v1 wrapping stays unchanged. |
 | D8  | **Limits sized for token calls:** 10 s upstream timeout; 64 KiB request and response limits and 50 concurrent requests, fixed rather than settings (owner, 2026-10-16). | A provider's authorization code lives about 30 s, and a token request and response are a few KB. Fixed limits keep the memory bound a constant far below 128 MB (§6) and remove three settings and their budget check. |
 | D9  | **Code conventions in `CONTRIBUTING.md`. Claude writes, Codex reviews and fixes, Claude reviews again** (2026-10-15).   | The code is public and security-critical but small, so it must be documented and concise. A second agent catches what the author misses; disagreements between them go to the owner (`AGENTS.md`, Review).                                     |
-| D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback ships disabled, and no gate counts as passed until it is recorded here.                       |
+| D10 | **Implement Phases 1 and 2 in this repository now, before the Phase 0 spike** (2026-10-15).                             | The owner asked for all code that belongs in this repository. Phase 0 still gates the Phase 1 exit and any tag (§14): the missing-site fallback shipped disabled and was removed on 2026-10-16 (§4.4), and no gate counts as passed until it is recorded here.                       |
 | D11 | **TARA token exchange only** (owner, 2026-10-17). Fix the route to `POST /oidc/token`, the upstream to an HTTPS origin without a base path and response headers to `Content-Type`, `Cache-Control`, `Pragma`; remove `RELAY_ROUTES` and `RELAY_RESPONSE_HEADERS`. | The relay serves this app's TARA token exchange. Configurable routes, base paths, response headers and other-provider setup add code and settings without a current use case. The existing optional credential setting is unchanged; the supported TARA setup supplies Basic authentication. No release exists, so these changes belong to the first protocol-v1 release. |
 
 ## 3. Request flow
@@ -129,7 +131,7 @@ these checks.
 - **The upstream answered, with any status:** `200`, `Relay-Upstream-Status: <code>`,
   the upstream body unchanged, and only the allowed response headers.
 - **The relay answers itself:** its own status, `Relay-Error: <code>`, and a
-  JSON body `{"error": "<code>"}`. Codes are stable across versions (F-9):
+  JSON body `{"error":"<code>"}`. Codes are stable across versions (F-9):
 
 | Status | Code                   | When                                                        |
 | ------ | ---------------------- | ----------------------------------------------------------- |
@@ -314,8 +316,8 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 
 - The normative protocol consists of §4, forwarding behavior in §5 and the
   setting names, defaults and validation rules in §8. `docs/PROTOCOL.md`
-  will publish the same contract in Phase 2; it must not introduce a second
-  competing definition.
+  publishes the same contract; it must not introduce a second competing
+  definition.
 - Patch releases preserve that contract. Compatible additions require a
   minor release; incompatible endpoint, response, header, setting or pin
   changes require a new protocol version and relay major release. Existing
@@ -557,7 +559,7 @@ empty (2026-10-16).
 **The admin page writes most of this.** For TARA,
 the Forge admin page shows a ready block with `RELAY_APP_ID`,
 `RELAY_ENVIRONMENT_ID`, `RELAY_CLOUD_IDS` and `RELAY_UPSTREAM_URL`
-filled in. The customer adds only the credential. This removes
+filled in. The customer adds only the credential and TARA's CA file. This removes
 the most likely setup mistakes.
 
 ## 9. Changes to the requirements (2026-10-15)
@@ -569,7 +571,7 @@ the most likely setup mistakes.
 | F-7                    | Upstream status in `Relay-Upstream-Status`, HTTP status `200`                                  | D7                                                                                                 |
 | F-8                    | `Relay-Protocol` on every application-generated response; `Relay-Version` only after a valid FIT | HTTP-server and proxy rejections may occur before a relay handler; hide the release from anonymous callers |
 | F-2                    | The FIT is checked before the route                                                            | Routes are not revealed to callers without a token                                                 |
-| F-10, R-2, §8 defaults | 64 KiB bodies (was 1 MB), 10 s timeout (was 20 s)                                              | D8                                                                                                 |
+| F-10, R-2, §8 defaults | 64 KiB fixed body limits (was a 1 MB default), 10 s default timeout (was 20 s)                 | D8                                                                                                 |
 | R-8 (MAY retry)        | No application retries or token POST replay after possible delivery; §5 defines transport recovery | A token call may already have spent a one-time code                                                |
 | S-9 (SHOULD)           | **Deferred:** filter Atlassian's IP ranges at the reverse proxy, which sees the real client IP | Inside the relay it would have to trust `X-Forwarded-For`, which adds settings and a spoofing risk |
 | new                    | Query strings and Isolated Cloud tokens are refused                                            | Not needed; fewer ways in                                                                          |
@@ -950,7 +952,7 @@ promotes unreleased work from `main` into a patch release.
     spoofed relay response headers, and no token POST replay after a request
     was delivered but the response was lost.
   - **Config:** every setting named without its value in its error, `_FILE`
-    conflicts and bounded file reads, unsafe header settings and JWKS age
+    conflicts and bounded file reads, an unsafe credential header and JWKS age
     validation.
   - **Health, logs and contract:** health remains live and locally responsive
     while the forwarding cap is full; readiness reflects usable-key age and
@@ -1126,7 +1128,7 @@ promotes unreleased work from `main` into a patch release.
 ## 16. Review evidence and implementation gates (2026-10-15)
 
 The plan review changes in §9 are accepted for documentation. No Phase 0
-experiment has run. This revision authorized no implementation; D10, later
+experiment had run then. This revision authorized no implementation; D10, later
 the same day, authorized Phases 1 and 2 in this repository. Forge
 integration, tags and pushes remain unauthorized.
 
@@ -1198,9 +1200,9 @@ There is no Go source or `go.mod` yet, so no source-check result is claimed.
 Document consistency and whitespace checks apply to this planning revision;
 the Go checks remain mandatory once the Phase 0/1 source and tools exist.
 
-**Implementation record (2026-10-16, D10).** Phase 1 is on
-`claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`; Phase
-2 forks from Phase 1 at `5f99afc`, before Codex's review, and carries
+**Implementation record (2026-10-16, D10).** Phase 1 was written on
+`claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`
+(both merged into `main`, branches deleted 2026-10-17); Phase 2 forks from Phase 1 at `5f99afc`, before Codex's review, and carries
 Codex's Phase 1 fixes as its own commits. Claude agents wrote both phases;
 other Claude agents reviewed them in three rounds before Codex's round
 (`AGENTS.md`), the third only of the second's fixes, each finding checked by
@@ -1373,7 +1375,7 @@ has a case that fails without it:
   the signal fails it within milliseconds. 900 `-race` runs in the pinned
   builder pass; of 600 checked, 8 needed a second attempt.
 
-Still open: Codex's review of these fixes (round 2), then Claude's round 3.
+Open at that point: Codex's review of these fixes (round 2), then Claude's round 3.
 
 **Phase 0 dry-run fix (2026-10-16), branch `claude/jwks-padding`, awaiting
 Codex's review.** Preparing the spike, the relay was run against
@@ -1385,8 +1387,8 @@ misplaced `=`; the fuzz oracle accepts both spellings, and a one-minute fuzz
 run of `FuzzParseJWKS` passed. The relay built from this branch reached
 `/readyz` 200 against the live JWKS.
 
-Still open before the Phase 1 exit: the Phase 0 gates, source CI passing on
-GitHub and the review of the fixes above. Phase 2 also needs its release
+Then still open before the Phase 1 exit: the Phase 0 gates, source CI
+passing on GitHub and the review of the fixes above. Phase 2 also needs its release
 verifications (§14) on a GitHub repository.
 
 **Codex review, round 2, Phase 0 results (2026-10-16).** Removed the real
@@ -1408,7 +1410,7 @@ Independent reviewers found no runtime defects in `claude/jwks-padding` or
 the environment-ARI update, and confirmed the three inherited round-3
 findings are fixed. The release-script fixtures pass, and the shutdown-order
 test passes 20 additional repetitions. No disagreements remain. Claude's
-round 3 is still required; no merge, push, tag or publication was performed.
+round 3 was still required; no merge, push, tag or publication was performed.
 `FuzzParseJWKS` passes a further one-minute run (1,834,667 inputs).
 
 **Open public-ready finding (resolved by the owner's decision below):** the
@@ -1437,7 +1439,8 @@ changing the v1 contract. No new findings and no disagreements.
   `claude/phase-1-relay-core` is superseded (its four Codex fixes are
   carried as `a7eba7a`, `1acc9de`, `262718c` and `4afad4e`), and
   `claude/wip-backup` is an old work-in-progress backup whose content has
-  landed. Neither is deleted without the owner's word.
+  landed. Neither was deleted without the owner's word; the owner had both
+  deleted on 2026-10-17.
 
 **Owner decision (2026-10-16): rewrite the unpushed line once, then
 fast-forward `main`.** The owner allowed Claude a one-time exception to
@@ -1449,7 +1452,8 @@ The final tree is identical to the old tip's, and no commit from `main` to
 the tip contains the label; Codex's sanitizing commit now changes only §16.
 The old commits stay in the local reflog until Git prunes them; nothing
 was ever pushed. `claude/phase-0-results` and
-`codex/review-phase-0-results` point to the rewritten commits, and `main`
+`codex/review-phase-0-results` pointed to the rewritten commits (both
+deleted 2026-10-17), and `main`
 is fast-forwarded to this commit.
 
 Primary references consulted for the review on 2026-10-15:
@@ -1487,7 +1491,7 @@ required. This plan takes from each:
   - a shared refresh for an unknown `kid`;
   - `Host` set to the upstream rather than removed;
   - the memory budget check at startup (1 MB defaults would have used about
-    100 MB on payloads alone);
+    100 MB on payloads alone; superseded 2026-10-16 by fixed limits, D8);
   - checking the Forge remote timeout per invocation path;
   - "the library handles mechanics, the relay enforces policy" (superseded
     on 2026-10-15: there is no library, and the relay does both, D2);

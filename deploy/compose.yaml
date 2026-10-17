@@ -88,7 +88,8 @@ services:
 secrets:
   upstream_auth:
     # One line, the credential header: for TARA "Authorization: Basic " and
-    # base64(client_id:client_secret) (PLAN.md §5). Docker mounts the file as
+    # base64 of the form-encoded client ID, ":" and the form-encoded secret
+    # (PLAN.md §5, docs/SETUP.md §3.1). Docker mounts the file as
     # it is, so make it readable by the relay only: chown 65532, chmod 400
     # (another owner with userns-remap or rootless Docker: docs/SETUP.md §3.1).
     file: ./secrets/upstream_auth

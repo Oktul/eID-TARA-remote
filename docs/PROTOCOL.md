@@ -19,10 +19,13 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
   request to the relay over plain HTTP inside the customer's host (`PLAN.md`
   D6). There is no end-to-end encryption in v1, and the relay itself serves
   plain HTTP only (`PLAN.md` §6).
-- HTTP/1.1 only, inbound and outbound. HTTP/2 is off (`PLAN.md` §7).
+- HTTP/2 is off inbound and outbound (`PLAN.md` §7). Inbound, the relay
+  serves HTTP/1.x; outbound, it accepts only an HTTP/1.1 answer, and any
+  other version is `502 upstream_unreachable` (section 4.2).
 - No path cleaning, no redirects and no implicit `HEAD` for `GET` happen
   before the checks in section 3.
-- Server limits (`PLAN.md` §6, R-1): request header block 16 KiB, header
+- Server limits (`PLAN.md` §6, R-1): request header block 16 KiB (net/http
+  allows 4 KiB of slack on top), header
   read 5 s, whole request read 10 s, response write `RELAY_UPSTREAM_TIMEOUT`
   plus 5 s, idle keep-alive 60 s.
 - The write deadline starts when the request header has been read, and the
@@ -158,11 +161,12 @@ Relay-Upstream-Status: 400
 {"error":"invalid_grant"}
 ```
 
-A relay error:
+A relay error, to a `POST /oidc/token` that carried a body:
 
 ```http
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json
+Connection: close
 Relay-Protocol: 1
 Relay-Error: invalid_token
 
@@ -456,7 +460,8 @@ Validation rules:
   but whitespace between and around them. Comment lines, other block types
   such as `TRUSTED CERTIFICATE` and damaged blocks are refused.
 - **Credential header.** `RELAY_UPSTREAM_AUTH` is `Name: value`; the name
-  must be valid and spaces and tabs around the value are removed. It may
+  must be valid, spaces and tabs around the value are removed and the
+  remaining value must not be empty. It may
   supply `Authorization`, but cannot supply routing, framing, hop-by-hop,
   idempotency or relay-owned headers. These exclusions apply
   case-insensitively. Its value may contain no control character other than
