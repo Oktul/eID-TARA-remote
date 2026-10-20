@@ -242,10 +242,12 @@ Fractional seconds are accepted, bounded to the Unix-second interval 0
 through 253402300799 inclusive; exponent notation (`1.8e9`) is refused. Missing, null, string or
 out-of-range dates are refused, and so is a NumericDate with a minus sign,
 even `-0`. With the skew `RELAY_CLOCK_SKEW`, the relay requires `exp > nbf`,
-`now < exp + skew` and `now + skew >= nbf` (A-4). Dates are compared exactly
+`exp - nbf <= 5 minutes`, `now < exp + skew` and `now + skew >= nbf` (A-4,
+SR-6). `iat` is ignored like any other claim. Dates are compared exactly
 at nanosecond resolution: a fractional `exp` rounds down and `nbf` rounds
 up, so sub-nanosecond rounding can only reject. Atlassian's example token
-lives 25 s; the relay does not depend on that lifetime.
+lives 25 s; the relay depends on that lifetime only through the 5-minute
+cap.
 
 ### 5.4 Site pin (D5)
 

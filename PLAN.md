@@ -182,7 +182,19 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   recorded the dates only as numbers, so fractions stay accepted. Require
   `exp > nbf`, `now < exp + skew` and `now + skew >= nbf` (A-4).
   Missing, null, string or out-of-range dates fail closed. Atlassian's
-  example token lives 25 s; the relay does not depend on that lifetime.
+  example token lives 25 s; the relay does not depend on that lifetime
+  beyond the cap below.
+- **Lifetime cap and `iat` (2026-10-20, SR-6).** `exp - nbf` must be at
+  most `MaxLifetime = 5 minutes`, or the token is refused with
+  `auth_reason` `lifetime`. A FIT lives 25 s (Phase 0), so the cap refuses
+  only a token Atlassian did not mint for one invocation, while leaving
+  twelvefold room before a longer Forge lifetime breaks relays. `iat` stays
+  ignored: Forge documents neither it nor `jti` (they appear only in the
+  example payload of _Forge Remote essentials_), and `nbf` already bounds
+  the start. No pin on the remote key: the app has one remote, and Phase 0
+  did not record which claim names it on this call path. The cap narrows
+  the accepted contract; no relay is released, so under §4.6 it is part of
+  the first release.
 - `app.environment.id` = `RELAY_ENVIRONMENT_ID` (D5). Forge sends the
   environment's ARI, `ari:cloud:ecosystem::environment/<app>/<environment>`,
   not the bare environment UUID (Phase 0, 2026-10-16), so the setting holds
@@ -1118,8 +1130,9 @@ promotes unreleased work from `main` into a patch release.
    - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin; a wrong or
      social-engineered value sends TARA's credential there. Warn or refuse
      unless the host is TARA's, with an explicit override.
-   - SR-6 (info): `iat` ignored, `exp - nbf` uncapped, and no pin on the
-     remote key, so a second remote of the same app would be accepted.
+   - SR-6 (info, decided 2026-10-20): `exp - nbf` is capped at 5 minutes
+     and `iat` stays ignored (§4.4). The remote key is not pinned: the app
+     has one remote, and which claim names it on this path is unrecorded.
    - SR-7 (info): no `Content-Type` check on forwarded bodies.
    - SR-8 (info, fixed 2026-10-20): relay answers now carry
      `Cache-Control: no-store` and `nosniff` (§4.3).

@@ -110,7 +110,7 @@ func fitClaims() map[string]any {
 	return map[string]any{
 		"iss": "forge/invocation-token",
 		"aud": testAppID,
-		"exp": now.Add(5 * time.Minute).Unix(),
+		"exp": now.Add(4 * time.Minute).Unix(),
 		"nbf": now.Add(-5 * time.Second).Unix(),
 		"app": map[string]any{
 			"id":             testAppID,

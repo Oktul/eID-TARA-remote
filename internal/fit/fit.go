@@ -27,6 +27,7 @@ const (
 	ReasonIssuer        Reason = "issuer"         // iss
 	ReasonAudience      Reason = "audience"       // aud
 	ReasonDates         Reason = "dates"          // exp or nbf missing, malformed or out of range
+	ReasonLifetime      Reason = "lifetime"       // exp - nbf over MaxLifetime
 	ReasonExpired       Reason = "expired"        // now >= exp + skew
 	ReasonNotYetValid   Reason = "not_yet_valid"  // now + skew < nbf
 	ReasonEnvironment   Reason = "environment"    // app.environment.id

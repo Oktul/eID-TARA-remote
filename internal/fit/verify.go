@@ -15,6 +15,12 @@ import (
 // Issuer is the only accepted iss claim (PLAN.md §4.4).
 const Issuer = "forge/invocation-token"
 
+// MaxLifetime caps exp - nbf (PLAN.md §4.4, SR-6). Forge's FITs live 25 s
+// (Phase 0); a token valid for longer was not minted for one invocation, and
+// would stay usable long after a leak. The cap leaves room for Atlassian to
+// lengthen the lifetime twelvefold before relays start refusing.
+const MaxLifetime = 5 * time.Minute
+
 // Policy is what a FIT must match: the relay's app, Forge environment and
 // sites (PLAN.md §4.4, D5). An empty value never matches, so a zero Policy
 // refuses every token.
@@ -162,7 +168,9 @@ func (v *Verifier) audience(c object) bool {
 	return false
 }
 
-// dates checks exp and nbf (PLAN.md §4.4, A-4). parseNumericDate already
+// dates checks exp and nbf (PLAN.md §4.4, A-4) and caps the lifetime
+// between them (SR-6). iat is not read: Forge does not document it, and
+// nbf already bounds when the token became valid. parseNumericDate already
 // rounded inexact values inward, so the comparisons below are exact.
 func (v *Verifier) dates(c object) error {
 	exp, err := parseNumericDate(c["exp"], false)
@@ -175,6 +183,9 @@ func (v *Verifier) dates(c object) error {
 	}
 	if !exp.After(nbf) {
 		return reject(ReasonDates)
+	}
+	if exp.Sub(nbf) > MaxLifetime {
+		return reject(ReasonLifetime)
 	}
 	now, skew := v.now(), v.policy.ClockSkew
 	if !now.Before(exp.Add(skew)) {

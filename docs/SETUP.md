@@ -634,6 +634,7 @@ itself log only
 | `issuer`         | `iss` is not `forge/invocation-token`                                         | Not a FIT.                                                                       |
 | `audience`       | The token is not for `RELAY_APP_ID`                                           | `RELAY_APP_ID` differs from the admin-page block.                                |
 | `dates`          | `exp` or `nbf` missing, malformed or out of range, or `exp` not after `nbf`    | Not a valid FIT.                                                                 |
+| `lifetime`       | `exp` is more than 5 minutes after `nbf`; Forge's tokens live 25 s           | Not a token Forge minted for one call. Report it if Forge calls fail this way.   |
 | `expired`        | The token expired, beyond the skew                                            | The host clock (section 7).                                                      |
 | `not_yet_valid`  | The token is not valid yet, beyond the skew                                   | The host clock (section 7).                                                      |
 | `environment`    | The app environment is not `RELAY_ENVIRONMENT_ID`                             | The block was copied from another app environment.                               |

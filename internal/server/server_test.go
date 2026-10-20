@@ -1022,7 +1022,7 @@ func TestCloudIDOnlyAfterVerifiedFIT(t *testing.T) {
 	siteB["context"] = map[string]any{"cloudId": testSiteB}
 	expired := fitClaims()
 	expired["exp"] = time.Now().Add(-time.Hour).Unix()
-	expired["nbf"] = time.Now().Add(-2 * time.Hour).Unix()
+	expired["nbf"] = time.Now().Add(-time.Hour - 25*time.Second).Unix()
 	cases := []struct {
 		name, target string
 		header       http.Header

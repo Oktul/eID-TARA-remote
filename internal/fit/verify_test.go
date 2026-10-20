@@ -687,8 +687,9 @@ func TestVerifyClaims(t *testing.T) {
 
 		{"exp_fractional_accepted", exp(`1800000020.75`), ""},
 		{"exp_exponent_form", exp(`1.80000002E9`), ReasonDates},
-		{"exp_at_max_accepted", exp(`253402300799`), ""},
-		{"nbf_zero_accepted", nbf(`0`), ""},
+		// The range ends parse as dates; only the lifetime cap refuses them.
+		{"exp_at_max_parsed", exp(`253402300799`), ReasonLifetime},
+		{"nbf_zero_parsed", nbf(`0`), ReasonLifetime},
 		{"dates_surrounded_by_whitespace_accepted", []string{expMember, "\"exp\" :\n1800000020 ,", nbfMember, "\"nbf\":\t1799999995\t,"}, ""},
 		{"exp_missing", []string{expMember, ""}, ReasonDates},
 		{"nbf_missing", []string{nbfMember, ""}, ReasonDates},
@@ -765,6 +766,10 @@ func TestVerifyClockSkewBoundaries(t *testing.T) {
 		{"exp_equal_nbf_fractional_rejected", "1800000000.5", "1800000000.5", 10 * time.Second, at(1800000000, 0), ReasonDates},
 		{"exp_one_nanosecond_after_nbf_accepted", "1800000000.000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ""},
 		{"sub_nanosecond_validity_rejected", "1800000000.0000000002", "1800000000.0000000001", 10 * time.Second, at(1800000000, 0), ReasonDates},
+		{"lifetime_at_max_accepted", "1800000300", "1800000000", 10 * time.Second, at(1800000000, 0), ""},
+		{"lifetime_over_max_rejected", "1800000300.000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
+		{"lifetime_hours_rejected", "1800036000", "1800000000", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
+		{"lifetime_full_range_rejected", "253402300799", "0", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

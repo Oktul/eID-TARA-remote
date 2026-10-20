@@ -472,7 +472,7 @@ func signFIT(t *testing.T, key *rsa.PrivateKey, kid string) string {
 	payload, err := json.Marshal(map[string]any{
 		"iss":     "forge/invocation-token",
 		"aud":     appID,
-		"exp":     now.Add(5 * time.Minute).Unix(),
+		"exp":     now.Add(4 * time.Minute).Unix(),
 		"nbf":     now.Add(-5 * time.Second).Unix(),
 		"app":     map[string]any{"id": appID, "environment": map[string]any{"id": envID}},
 		"context": map[string]any{"cloudId": cloudID},
