@@ -9,7 +9,9 @@ live client and a registered IP. Every code change on `main` was reviewed
 by an agent that did not write it, with no open findings; the last moved
 the concurrency slot after the FIT check (SR-2, owner 2026-10-20). An
 end-to-end security review on 2026-10-20 refused everything it should;
-its open low and info findings wait in §14 Phase 4. Not tagged, pushed or
+of its low and info findings, SR-4, SR-5, SR-8 and SR-9 are fixed and
+SR-6 decided, while SR-1 (FIT replay) waits for evidence on `jti` and
+SR-7 for the owner (§14 Phase 4). Not tagged, pushed or
 published; no workflow has run, since the repository has no remote yet.
 Still open: the PINNED gate, source CI on GitHub and the Phase 2 release
 verifications._
@@ -1146,13 +1148,27 @@ promotes unreleased work from `main` into a patch release.
    live client from RIA and the relay on a registered IP.
 4. **Acceptance:** §13 by hand, plus a security review of both sides.
    An end-to-end review ran on 2026-10-20 against a development build
-   (§16). Its open low and info findings, for the owner to decide before
-   v1:
+   (§16). Its low and info findings, as handled on 2026-10-20; SR-1 and
+   SR-7 wait for the owner before v1:
    - SR-1: no replay protection. A FIT seen in clear (a TLS-terminating hop,
      a proxy that logs headers) can be reused with any body until
      `exp + RELAY_CLOCK_SKEW`, and the relay adds the credential each time.
      Check first whether FITs carry `jti` and whether Forge ever reuses one;
      then a seen set for `POST /oidc/token` until `exp + skew`.
+     **Blocked on evidence (2026-10-20).** _Forge Remote essentials_
+     documents neither `jti` nor `iat`: both appear only in its example
+     payload (a 40-hex `jti`), and nothing says whether Forge mints one FIT
+     per `invokeRemote` call or reuses one, within an invocation or across
+     invocations. Phase 0 recorded neither. If Forge reused a FIT, a seen
+     set would refuse a legitimate login (two users on one site within the
+     25 s lifetime), so none was built. Needed first: a spike that logs, per token POST, only
+     whether `jti` is present and a short hash of it and of the signature,
+     over two `invokeRemote` calls in one invocation and over back-to-back
+     logins. If every call carries a fresh `jti`, key the set by `jti`
+     (else the signature hash), hold it until `exp + skew` on one replica,
+     and answer a replay `401 invalid_token` with `auth_reason` `replayed`.
+     A seen set still loses to an attacker who replays first; it stops
+     later reuse with other bodies.
    - SR-4 (fixed 2026-10-20): an inline `RELAY_UPSTREAM_AUTH` (rather
      than `_FILE`) shows in `docker inspect` and the process environment;
      startup now warns about it (§10).
@@ -1163,7 +1179,13 @@ promotes unreleased work from `main` into a patch release.
    - SR-6 (info, decided 2026-10-20): `exp - nbf` is capped at 5 minutes
      and `iat` stays ignored (§4.4). The remote key is not pinned: the app
      has one remote, and which claim names it on this path is unrecorded.
-   - SR-7 (info): no `Content-Type` check on forwarded bodies.
+   - SR-7 (info, not built 2026-10-20; owner to confirm): no
+     `Content-Type` check on forwarded bodies. A refusal would need a new
+     relay error code (say `415 unsupported_media_type`), a protocol
+     addition the Forge app would have to learn, while it would stop only a
+     caller who already holds a valid FIT and can send a well-formed form
+     anyway. The app sends only the fixed form from `/cb`, and TARA judges
+     the body itself.
    - SR-8 (info, fixed 2026-10-20): relay answers now carry
      `Cache-Control: no-store` and `nosniff` (§4.3).
    - SR-9 (info, fixed 2026-10-20): errors Go's server answers itself
@@ -1585,8 +1607,9 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     relay sees the code and TARA's token answer (personal data). The host
     clock (the test VM's ran about 1 s ahead) was already in
     `docs/SETUP.md` 7.
-  - SR-1 and SR-4 to SR-9 are open, with what the review did not cover:
-    §14, Phase 4.
+  - SR-4, SR-5, SR-8 and SR-9 were fixed and SR-6 decided on
+    2026-10-20; SR-1 waits for evidence on `jti` and FIT reuse, and SR-7 was
+    not built. Details and what the review did not cover: §14, Phase 4.
 
 Primary references consulted for the review on 2026-10-15:
 
