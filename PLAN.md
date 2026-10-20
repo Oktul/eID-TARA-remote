@@ -1035,16 +1035,17 @@ promotes unreleased work from `main` into a patch release.
   - a 72-hour soak on a VM: `-scenario soak -duration 72h`, valid FITs at
     `-rate` (default 5/s) with every tenth signature bad, a progress line
     per `-report-every` (default 5 min) and container memory sampled
-    alongside (`docker stats`). Every answer must be forwarded or
-    `invalid_token`, no health probe may fail, no rejected request may
-    reach the upstream, and memory must stay flat;
+    alongside (`docker stats`). Each valid FIT must be forwarded and each
+    bad one answered `invalid_token`, no health probe may fail, no
+    rejected request may reach the upstream, and memory must stay flat;
   - a JWKS outage (`-scenario jwks-outage`, added 2026-10-20): the test
     JWKS answers 503 while valid FITs go on at `-rate`, with the relay
     started with the printed `RELAY_JWKS_REFRESH=30s` and
     `RELAY_JWKS_MAX_AGE=2m`. The keys must expire between max age minus
     refresh and max age into the outage (§4.5; later would trust keys past
-    the bound), nothing may be forwarded after that, `/readyz` must turn
-    503 while `/livez` never fails (§6), and forwarding must resume within
+    the bound), nothing may reach the upstream after that, `/readyz` must
+    give the relay's own `503 not_ready` (no other failure) while `/livez`
+    never fails (§6), and forwarding must resume within
     `JWKSRetryMax` once the JWKS is back. About 5 minutes. First runs
     2026-10-20, the relay image in Docker Desktop on Windows, the generator
     on the host: a 1-minute soak passed (299 requests, p99 229 ms, memory
@@ -1718,39 +1719,52 @@ Claude alone.
 
 **Codex review, round 2, soak and JWKS outage (2026-10-20).** Review fixes
 live on `codex/review-soak-jwks-outage`; Claude's commit is unchanged.
-The outage's readiness exception now requires the exact relay
-`503 not_ready` answer, including its protocol, error header, content type
-and body (§4.1, §4.3). Previously any `/readyz` 503, including a proxy
-failure or `too_busy`, counted as evidence of expired keys. Negative
-fixtures cover these answers and oversized health bodies.
+Four fixes:
+
+- The outage's readiness exception now requires the exact relay
+  `503 not_ready` answer, including its protocol, error header, content
+  type and body (§4.1, §4.3). Previously any `/readyz` 503, including a
+  proxy failure or `too_busy`, counted as evidence of expired keys.
+  Negative fixtures cover these answers and oversized health bodies.
+- The paced backlog and soak progress tests now use `testing/synctest` and
+  an injected HTTP client (§13), removing their real 200 ms timeout and
+  tickers as required by `CONTRIBUTING.md`. In-memory responses keep all
+  waits inside the fake clock, including the held request in the backlog
+  test. Both pass 100 repetitions under the race detector.
+- The soak's upstream-call accounting moved into the shared verdict, so
+  the JWKS outage (and `full`) checks it too (§4.2, §13). Previously an
+  expired-key request could reach the upstream and then be answered
+  `not_ready` without failing the outage. A fake-clock run of the complete
+  five-minute outage proves expiry, readiness, restoration and recovery,
+  fails when such hidden upstream calls are introduced, and passes 20
+  race-enabled repetitions.
+- The soak matches each answer to the FIT it sent (§4.4, §13). Accepting
+  either outcome in aggregate could pass a relay that forwarded bad
+  signatures (with `-body-bytes 0`) or refused most valid FITs. The paced
+  observer now includes the request sequence; both faults are counted as
+  fixed error classes and have fake-clock regression cases that pass 100
+  race-enabled repetitions.
+
 `gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
-and `govulncheck ./...` pass in order, with no vulnerabilities found; race
-tests use the pinned Go 1.27.2 Linux builder with networking disabled.
-The paced backlog and soak progress tests now use `testing/synctest` and
-an injected HTTP client (§13), removing their real 200 ms timeout and
-tickers as required by `CONTRIBUTING.md`. In-memory responses keep all
-waits inside the fake clock, including the held request in the backlog
-test.
-All five required checks pass again; both converted timing tests also pass
-100 repetitions under the race detector.
-Moved the soak's upstream-call accounting into the shared verdict, so the
-JWKS outage checks it too (§4.2, §13). Previously an expired-key request
-could reach the upstream and then be answered `not_ready` without failing
-the outage. A fake-clock run of the complete five-minute outage proves
-expiry, readiness, restoration and recovery, and fails when such hidden
-upstream calls are introduced.
-All five required checks pass again with no vulnerabilities found; the
-complete outage regression also passes 20 race-enabled repetitions. No
-open findings or disagreements remain in this review. Claude's round 3 is
-still required; no merge, push or tag was performed. The VM acceptance
-runs, including the 72-hour soak, remain open.
-The soak now matches each answer to the FIT it sent (§4.4, §13). Accepting
-either outcome in aggregate could pass a relay that forwarded bad
-signatures (with `-body-bytes 0`) or refused most valid FITs. The paced
-observer now includes the request sequence; both faults are counted as
-fixed error classes and have fake-clock regression cases.
-All five required checks pass again with no vulnerabilities found, and the
-new request-specific soak tests pass 100 race-enabled repetitions.
+and `govulncheck ./...` pass in order after each fix, with no
+vulnerabilities found; race tests use the pinned Go 1.27.2 Linux builder
+with networking disabled. No open findings or disagreements remain in this
+review. Claude's round 3 is still required; no merge, push or tag was
+performed. The VM acceptance runs, including the 72-hour soak, remain open.
+
+**Claude review, round 3, soak and JWKS outage (2026-10-20).** All four
+Codex fixes stand; there is no disagreement and no behaviour change in
+this round. Checked against the relay itself: `writeError` sends exactly
+the `/readyz` answer the stricter probe requires (`server.go`), and every
+`full` request that reaches the upstream returns a forwarded answer, so the
+shared upstream-call check cannot fail a healthy `full` run. A live run of
+the branch's generator (`e8f3051`) against the relay image in Docker
+Desktop passed: a 1-minute soak (300 requests, 30 rejected as sent, p99
+172 ms) and the outage (`/readyz 503 not_ready` 187 times, never another
+probe failure, keys expired at 2m0s, forwarding back at 3m33s, upstream
+calls equal to forwarded answers). The five checks pass, `-race` in the
+pinned builder without network. Round 3 changed only records: this entry
+put in order and §13 aligned with the stricter checks.
 
 Primary references consulted for the review on 2026-10-15:
 
