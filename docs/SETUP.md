@@ -53,9 +53,9 @@ RELAY_UPSTREAM_URL=https://tara.ria.ee
   comma-separated. Never add a site you do not control.
 - `RELAY_UPSTREAM_URL` is TARA's HTTPS origin, without a path:
   `https://tara.ria.ee` (live) or `https://tara-test.ria.ee` (demo). The
-  relay refuses to start with any other value, because it sends your TARA
-  credential there. If someone asks you to change it, check with the
-  admin page first. The relay forwards only `POST /oidc/token`.
+  relay refuses to start with any other value, including an explicit
+  `:443`, because it sends your TARA credential there (section 10.1). If
+  someone asks you to change it, check with the admin page first. The relay forwards only `POST /oidc/token`.
 - `RELAY_INSTALLATION_IDS` is an optional extra pin on the installation. A
   reinstall changes the installation ID, so you must then update it.
 - You add only the credential and TARA's CA file (section 3). Every setting, its
@@ -574,9 +574,11 @@ setting itself when its content is wrong. Common cases:
   `PEM block is not a CERTIFICATE`, `malformed PEM block`,
   `invalid certificate` or `no PEM certificate` (section 3.2).
 - `RELAY_UPSTREAM_URL`: `not one of https://tara.ria.ee,
-  https://tara-test.ria.ee; …`: the value is not TARA's. Copy it again from
-  the admin page. `RELAY_UPSTREAM_ANY_HOST=true` lifts the check for test
-  setups with a synthetic upstream; never set it for a real relay.
+  https://tara-test.ria.ee; set RELAY_UPSTREAM_ANY_HOST=true for another
+  upstream`. The value is not exactly one of TARA's two origins (the log
+  does not show it). Copy it again from the admin page, without a path,
+  port or trailing dot. `RELAY_UPSTREAM_ANY_HOST=true` lifts the check for
+  test setups with a synthetic upstream; never set it for a real relay.
 - `RELAY_APP_ID`: `want ari:cloud:ecosystem::app/ followed by a lowercase
   UUID`, which is also what an unreplaced `<from the admin page>` gives.
 - `set only one of RELAY_UPSTREAM_AUTH and RELAY_UPSTREAM_AUTH_FILE`, and

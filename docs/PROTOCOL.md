@@ -229,7 +229,7 @@ hostile input.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `iss`                | Exactly `forge/invocation-token`.                                                                                                |
 | `aud`                | Exactly the `RELAY_APP_ID` string, or a non-empty array of non-empty strings that contains that exact value (A-3).              |
-| `exp`, `nbf`         | Required NumericDate JSON numbers (below).                                                                                       |
+| `exp`, `nbf`         | Required NumericDate JSON numbers, `exp` at most 5 minutes after `nbf` (below).                                                  |
 | `app.environment.id` | Equal to `RELAY_ENVIRONMENT_ID` (D5): the environment's ARI, `ari:cloud:ecosystem::environment/<app>/<environment>`.             |
 | `context.cloudId`    | The site pin (section 5.4).                                                                                                      |
 | `app.installationId` | In `RELAY_INSTALLATION_IDS`, only if that is set (an optional extra pin). A malformed value is refused when supplied.             |
@@ -243,7 +243,9 @@ through 253402300799 inclusive; exponent notation (`1.8e9`) is refused. Missing,
 out-of-range dates are refused, and so is a NumericDate with a minus sign,
 even `-0`. With the skew `RELAY_CLOCK_SKEW`, the relay requires `exp > nbf`,
 `exp - nbf <= 5 minutes`, `now < exp + skew` and `now + skew >= nbf` (A-4,
-SR-6). `iat` is ignored like any other claim. Dates are compared exactly
+SR-6). `iat` is ignored like any other claim. The cap refuses only tokens
+Forge did not mint: Forge's span 55 s, and since Forge reuses one FIT for
+several calls, a FIT cannot be made single-use (`PLAN.md` §14, SR-1). Dates are compared exactly
 at nanosecond resolution: for the validity window, a fractional `exp` rounds
 down and `nbf` rounds up; the lifetime cap instead rounds `exp` up and `nbf`
 down. Sub-nanosecond rounding can only reject in either check. Atlassian's example token
@@ -470,8 +472,11 @@ Validation rules:
   It must be exactly `https://tara.ria.ee` or `https://tara-test.ria.ee`
   (no port, lowercase), unless `RELAY_UPSTREAM_ANY_HOST` is `true`: the
   relay sends TARA's credential to this origin, so a wrong value must not
-  pass silently (SR-5). With the override, every start logs `upstream is
-  not TARA`.
+  pass silently (SR-5, owner 2026-10-20). Any other value stops startup
+  with exit code 2 and the reason `not one of https://tara.ria.ee,
+  https://tara-test.ria.ee; set RELAY_UPSTREAM_ANY_HOST=true for another
+  upstream`, without the value. With the override, every start logs
+  `upstream is not TARA`.
 - **`RELAY_UPSTREAM_ANY_HOST`** is exactly `true` or `false`.
 - **`RELAY_JWKS_URL`** starts with `https://` and must have a host, a port
   from 1 to 65535 if it names one, and no userinfo, query or fragment.

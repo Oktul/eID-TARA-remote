@@ -9,10 +9,9 @@ live client and a registered IP. Every code change on `main` was reviewed
 by an agent that did not write it, with no open findings; the last moved
 the concurrency slot after the FIT check (SR-2, owner 2026-10-20). An
 end-to-end security review on 2026-10-20 refused everything it should;
-of its low and info findings, SR-4, SR-5, SR-8 and SR-9 are fixed and
-SR-6 decided; SR-1 (FIT replay) is closed without a fix, since a spike
-showed Forge reuses FITs across calls, and SR-7 waits for the owner (§14
-Phase 4). Not tagged, pushed or
+of its low and info findings, SR-4, SR-5, SR-8 and SR-9 are fixed, the
+owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT replay) is closed without
+a fix, since a spike showed Forge reuses FITs across calls (§14 Phase 4). Not tagged, pushed or
 published; no workflow has run, since the repository has no remote yet.
 Still open: the PINNED gate, source CI on GitHub and the Phase 2 release
 verifications._
@@ -188,14 +187,17 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   Missing, null, string or out-of-range dates fail closed. Atlassian's
   example token lives 25 s; the relay does not depend on that lifetime
   beyond the cap below.
-- **Lifetime cap and `iat` (2026-10-20, SR-6).** `exp - nbf` must be at
+- **Lifetime cap and `iat` (owner, 2026-10-20, SR-6: "keep 5 minutes").** `exp - nbf` must be at
   most `MaxLifetime = 5 minutes`, or the token is refused with
   `auth_reason` `lifetime`. A FIT is usable about 25 s after it is issued
   (Phase 0), and its `exp - nbf` is 55 s, since Forge sets `nbf` 30 s
   before `iat` (SR-1 spike, 2026-10-20). The cap therefore leaves more
   than fivefold room before a longer Forge lifetime breaks relays. `iat`
   stays ignored: every FIT carries it, but Forge does not document it,
-  and `nbf` already bounds the start. No pin on the remote key: the app has one remote, and Phase 0
+  and `nbf` already bounds the start. A tighter cap would not stop replay
+  either: Forge reuses one FIT for several calls, so a FIT cannot be made
+  single-use (SR-1, §14), and the cap only refuses tokens Forge did not
+  mint. No pin on the remote key: the app has one remote, and Phase 0
   did not record which claim names it on this call path. The cap narrows
   the accepted contract; no relay is released, so under §4.6 it is part of
   the first release.
@@ -558,7 +560,8 @@ exactly.
 userinfo, query or fragment, since the startup summary prints them. The
 upstream is an origin: only an optional root `/` is accepted and normalized
 away; the JWKS URL may include its endpoint path.
-**Upstream host guard (2026-10-20, SR-5).** `RELAY_UPSTREAM_URL` must be
+**Upstream host guard (owner, 2026-10-20, SR-5: "dont start without
+correct url").** `RELAY_UPSTREAM_URL` must be
 exactly `https://tara.ria.ee` or `https://tara-test.ria.ee` after
 normalization (lowercase, no port), unless `RELAY_UPSTREAM_ANY_HOST` is
 `true`. The relay sends TARA's client secret to this origin, and the value
@@ -569,7 +572,12 @@ secret on the first login. The override is exactly `true` or `false`
 fixture and the image smoke test; with it, every start logs `upstream is
 not TARA`. The Forge app's block only ever writes TARA's two origins. A new
 refusal narrows the accepted settings; no relay is released, so under §4.6
-it is part of the first release.
+it is part of the first release. The refusal is an ordinary configuration
+error: exit code 2 and one `invalid configuration` line with `setting`
+`RELAY_UPSTREAM_URL` and `reason` `not one of https://tara.ria.ee,
+https://tara-test.ria.ee; set RELAY_UPSTREAM_ANY_HOST=true for another
+upstream`. Like every configuration error it never prints the configured
+value.
 `RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
 of PEM `CERTIFICATE` blocks with only whitespace before, between and after
 them; `_FILE` values are read up to 64 KiB. The
@@ -1151,8 +1159,8 @@ promotes unreleased work from `main` into a patch release.
    live client from RIA and the relay on a registered IP.
 4. **Acceptance:** §13 by hand, plus a security review of both sides.
    An end-to-end review ran on 2026-10-20 against a development build
-   (§16). Its low and info findings, as handled on 2026-10-20; SR-7
-   waits for the owner before v1:
+   (§16). Its low and info findings, as handled and decided on
+   2026-10-20:
    - SR-1: no replay protection. A FIT seen in clear (a TLS-terminating hop,
      a proxy that logs headers) can be reused with any body until
      `exp + RELAY_CLOCK_SKEW`, and the relay adds the credential each time.
@@ -1184,19 +1192,21 @@ promotes unreleased work from `main` into a patch release.
    - SR-4 (fixed 2026-10-20): an inline `RELAY_UPSTREAM_AUTH` (rather
      than `_FILE`) shows in `docker inspect` and the process environment;
      startup now warns about it (§10).
-   - SR-5 (fixed 2026-10-20): `RELAY_UPSTREAM_URL` accepted any HTTPS
-     origin, so a wrong or social-engineered value would send TARA's
-     credential there. Startup now refuses anything but TARA's two origins
-     unless `RELAY_UPSTREAM_ANY_HOST=true` (§8).
-   - SR-6 (info, decided 2026-10-20): `exp - nbf` is capped at 5 minutes
-     and `iat` stays ignored (§4.4). The remote key is not pinned: the app
+   - SR-5 (fixed; refusal decided by the owner, 2026-10-20):
+     `RELAY_UPSTREAM_URL` accepted any HTTPS origin, so a wrong or
+     social-engineered value would send TARA's credential there. Startup
+     now refuses anything but TARA's two origins unless
+     `RELAY_UPSTREAM_ANY_HOST=true`, with a documented
+     `invalid configuration` line (§8).
+   - SR-6 (info, owner decided 2026-10-20): `exp - nbf` is capped at 5
+     minutes and `iat` stays ignored (§4.4); FITs span 55 s. The remote key is not pinned: the app
      has one remote, and which claim names it on this path is unrecorded.
-   - SR-7 (info, not built 2026-10-20; owner to confirm): no
-     `Content-Type` check on forwarded bodies. A refusal would need a new
-     relay error code (say `415 unsupported_media_type`), a protocol
-     addition the Forge app would have to learn, while it would stop only a
-     caller who already holds a valid FIT and can send a well-formed form
-     anyway. The app sends only the fixed form from `/cb`, and TARA judges
+   - SR-7 (info, decided not to build; owner, 2026-10-20: "no need to
+     check that"): no `Content-Type` check on forwarded bodies. Only a
+     caller holding a valid FIT reaches the forwarder, and it can send a
+     well-formed form anyway; a refusal would need a new relay error code
+     (say `415 unsupported_media_type`) that the Forge app would have to
+     learn. The app sends only the fixed form from `/cb`, and TARA judges
      the body itself.
    - SR-8 (info, fixed 2026-10-20): relay answers now carry
      `Cache-Control: no-store` and `nosniff` (§4.3).
@@ -1621,7 +1631,7 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     `docs/SETUP.md` 7.
   - SR-4, SR-5, SR-8 and SR-9 were fixed and SR-6 decided on
     2026-10-20; SR-1 was closed without a fix after a spike showed Forge
-    reuses FITs, and SR-7 was not built. Details and what the review did not cover: §14, Phase 4.
+    reuses FITs, and SR-7 was decided not to be built (owner). Details and what the review did not cover: §14, Phase 4.
 
 **Codex review, round 2, security hardening (2026-10-20).** Reviewed
 `main...claude/security-review-hardening` through `1d8f418` against this
@@ -1671,7 +1681,9 @@ owner's open decisions remain: refusing rather than warning on a
 non-TARA upstream, the 5-minute cap, the SR-1 spike and SR-7 (§14).
 The SR-1 spike then ran the same day and showed that Forge reuses FITs,
 so SR-1 is closed without a seen set (§14); the 5-minute cap fits the
-measured 55 s `exp - nbf`.
+measured 55 s `exp - nbf`. The owner then decided the rest on 2026-10-20:
+keep refusing a non-TARA upstream (SR-5), keep the 5-minute cap (SR-6) and
+do not check `Content-Type` (SR-7). A test now pins SR-5's startup line.
 
 Primary references consulted for the review on 2026-10-15:
 

@@ -218,6 +218,40 @@ func TestServeInvalidSettingExits2(t *testing.T) {
 	}
 }
 
+// TestServeRefusesNonTARAUpstream pins the startup failure of SR-5 (PLAN.md
+// §8, owner 2026-10-20): an upstream other than TARA's two origins stops
+// the relay with exit code 2 and one invalid-configuration line that names
+// the setting, the allowed origins and the override, but never the
+// configured value.
+func TestServeRefusesNonTARAUpstream(t *testing.T) {
+	const reason = "not one of https://tara.ria.ee, https://tara-test.ria.ee; set RELAY_UPSTREAM_ANY_HOST=true for another upstream"
+	for name, env := range map[string]map[string]string{
+		"other_host":      with(validEnv(), "RELAY_UPSTREAM_URL", "https://"+marker+".example"),
+		"override_false":  with(validEnv(), "RELAY_UPSTREAM_URL", "https://"+marker+".example", "RELAY_UPSTREAM_ANY_HOST", "false"),
+		"tara_with_port":  with(validEnv(), "RELAY_UPSTREAM_URL", "https://tara.ria.ee:443"),
+		"tara_look_alike": with(validEnv(), "RELAY_UPSTREAM_URL", "https://tara.ria.ee."+marker+".example"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"serve"}, environ(env), &stdout, &stderr); code != 2 {
+				t.Fatalf("exit code = %d, want 2; stdout:\n%s", code, stdout.String())
+			}
+			if strings.Contains(stdout.String()+stderr.String(), marker) || strings.Contains(stdout.String(), ":443") {
+				t.Errorf("output shows the configured value:\n%s%s", stdout.String(), stderr.String())
+			}
+			lines := logLines(t, stdout.String())
+			if len(lines) != 1 {
+				t.Fatalf("got %d log lines, want 1:\n%s", len(lines), stdout.String())
+			}
+			l := lines[0]
+			if l["msg"] != "invalid configuration" || l["level"] != "ERROR" ||
+				l["setting"] != "RELAY_UPSTREAM_URL" || l["reason"] != reason {
+				t.Errorf("log line = %v, want ERROR \"invalid configuration\" setting RELAY_UPSTREAM_URL reason %q", l, reason)
+			}
+		})
+	}
+}
+
 // TestServeWarnsUnknownSettingsWhenLoadFails checks PLAN.md §8: unknown
 // RELAY_* names are reported by name, without their values, even when
 // startup fails, since a typo often explains the error that follows.
