@@ -32,6 +32,7 @@ func TestHTTPServerSettingsMatchPlan(t *testing.T) {
 		{"http1_only", hs.Protocols != nil && hs.Protocols.HTTP1() && !hs.Protocols.HTTP2() && !hs.Protocols.UnencryptedHTTP2()},
 		{"no_general_options_handler", hs.DisableGeneralOptionsHandler},
 		{"error_log_replaced", hs.ErrorLog != nil},
+		{"refusals_tracked", hs.ConnState != nil && hs.ConnContext != nil}, // SR-9
 		{"plain_http", hs.TLSConfig == nil},
 	}
 	for _, c := range checks {

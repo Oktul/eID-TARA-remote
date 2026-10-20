@@ -677,9 +677,15 @@ not show at `info`.
 | `status`          | The status the relay answered with.                                                                                           |
 | `upstream_status` | The provider's status, when it answered.                                                                                      |
 | `duration_ms`     | The time to answer.                                                                                                           |
-| `error`           | The relay's error code, or `client_canceled`, `request_read` or `panic` (section 10.3). Never a raw error message.            |
+| `error`           | The relay's error code, or `client_canceled`, `request_read` or `panic` (section 10.3), or `http_server` (below). Never a raw error message. |
 | `auth_reason`     | Why a FIT was refused (section 10.4).                                                                                         |
 | `cloud_id`        | The site, only from a verified FIT.                                                                                           |
+
+A request the HTTP server refuses before the relay sees it, such as a
+header over 16 KiB (`431`) or a malformed request (`400`), also logs a
+`request` line, with `route` `unmatched`, its `status` and `error`
+`http_server`, but no `method`, since the request was never parsed. Many
+of them usually mean a scanner or a misconfigured front end.
 
 The logs never contain request or response bodies, query strings, request
 paths that matched no route, header values other than the validated trace

@@ -3,12 +3,16 @@
 package server_test
 
 import (
+	"bufio"
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"eid-forge-remote/internal/forward"
 	"eid-forge-remote/internal/server"
@@ -245,7 +249,8 @@ func TestContractUpstreamWithoutContentType(t *testing.T) {
 
 // TestContractTransportLevelRejections shows the requests net/http refuses
 // before the relay's handler runs: they carry no relay headers (PLAN.md
-// §4.3) and leave no request log line, and their content is not logged.
+// §4.3). Each leaves one request log line with fixed values and the status
+// (SR-9), and their content is not logged.
 func TestContractTransportLevelRejections(t *testing.T) {
 	r := newRelay(t, relayOptions{run: true})
 	cases := []struct {
@@ -272,14 +277,70 @@ func TestContractTransportLevelRejections(t *testing.T) {
 			}
 		})
 	}
-	// A handled request after the rejections proves the log is written at all.
-	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
-	lines := r.logs.waitRequests(t, 1)
-	if len(lines) != 1 {
-		t.Errorf("%d request log lines, want only the health check's", len(lines))
+	lines := r.logs.waitRequests(t, len(cases))
+	var statuses []string
+	for _, l := range lines {
+		statuses = append(statuses, field(l, "status"))
+		want := []string{"duration_ms", "error", "level", "msg", "request_id", "route", "status", "time"}
+		if got := keys(l); !slices.Equal(got, want) {
+			t.Errorf("log keys = %v, want %v", got, want)
+		}
+		if field(l, "route") != "unmatched" || field(l, "error") != "http_server" || field(l, "level") != "INFO" {
+			t.Errorf("log line = %v, want an INFO unmatched http_server line", l)
+		}
+	}
+	slices.Sort(statuses)
+	if want := []string{"400", "431"}; !slices.Equal(statuses, want) {
+		t.Errorf("logged statuses = %v, want %v", statuses, want)
 	}
 	if strings.Contains(r.logs.String(), secretMarker) {
 		t.Error("a rejected request's content reached the log")
+	}
+}
+
+// TestTransportRejectionAfterHandledRequest sends a valid request and then
+// an oversized one on the same connection. Only the second is logged as
+// net/http's own answer: the tracking restarts with every request (SR-9).
+func TestTransportRejectionAfterHandledRequest(t *testing.T) {
+	r := newRelay(t, relayOptions{run: true})
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }() // the relay closes it first
+	if err := conn.SetDeadline(time.Now().Add(waitTimeout)); err != nil {
+		t.Fatal(err)
+	}
+	first := "GET /livez HTTP/1.1\r\nHost: relay.example\r\n\r\n"
+	second := "GET /livez HTTP/1.1\r\nHost: relay.example\r\nX-Pad: " + secretMarker + strings.Repeat("a", 32<<10) + "\r\n\r\n"
+	if _, err := io.WriteString(conn, first); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(conn)
+	for i, want := range []int{http.StatusOK, http.StatusRequestHeaderFieldsTooLarge} {
+		if i == 1 {
+			if _, err := io.WriteString(conn, second); err != nil {
+				t.Fatal(err)
+			}
+		}
+		resp, err := http.ReadResponse(br, &http.Request{Method: "GET"})
+		if err != nil {
+			t.Fatalf("answer %d: %v", i+1, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body) // only the status matters
+		if resp.StatusCode != want {
+			t.Errorf("answer %d = %d, want %d", i+1, resp.StatusCode, want)
+		}
+	}
+	lines := r.logs.waitRequests(t, 2)
+	if field(lines[0], "route") != "GET /livez" || field(lines[0], "status") != "200" {
+		t.Errorf("first line = %v, want the health check", lines[0])
+	}
+	if field(lines[1], "error") != "http_server" || field(lines[1], "status") != "431" {
+		t.Errorf("second line = %v, want net/http's 431", lines[1])
+	}
+	if len(lines) != 2 {
+		t.Errorf("%d request lines, want 2", len(lines))
 	}
 }
 

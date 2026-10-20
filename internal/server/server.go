@@ -76,6 +76,10 @@ const (
 	errClassRequestRead    = "request_read"
 	errClassClientCanceled = "client_canceled"
 	errClassPanic          = "panic"
+	// errClassHTTPServer marks a request net/http answered itself, before
+	// any handler ran: a header over the limit (431), a malformed request
+	// (400) and the like (SR-9).
+	errClassHTTPServer = "http_server"
 )
 
 // Endpoints the relay answers itself (PLAN.md §4.1). They are matched against
@@ -168,6 +172,9 @@ type record struct {
 // so no panic can escape this frame.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	if c, ok := r.Context().Value(connKey{}).(*trackedConn); ok {
+		c.handled.Store(true)
+	}
 	sw := &statusWriter{ResponseWriter: w}
 	rec := &record{requestID: requestID(r.Header), method: forward.LogMethod(r.Method), route: routeUnmatched}
 	defer func() {
@@ -488,7 +495,7 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (s *Server) Run(ctx context.Context, ln net.Listener) error {
 	hs := s.httpServer()
 	served := make(chan error, 1)
-	go func() { served <- hs.Serve(ln) }()
+	go func() { served <- hs.Serve(trackedListener{ln}) }()
 	select {
 	case err := <-served:
 		return err
@@ -526,6 +533,107 @@ func (s *Server) httpServer() *http.Server {
 		// FIT check and without relay headers.
 		DisableGeneralOptionsHandler: true,
 		ErrorLog:                     log.New(serverErrorWriter{s.log}, "", 0),
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			return context.WithValue(ctx, connKey{}, c)
+		},
+		ConnState: s.connState,
+	}
+}
+
+// connKey is the context key under which ConnContext stores the connection.
+type connKey struct{}
+
+// trackedListener wraps each accepted connection in a trackedConn.
+// Requests that net/http refuses before a handler runs, such as a header
+// over MaxHeaderBytes (431) or a malformed request line (400), never reach
+// ServeHTTP, so they would leave no log line (SR-9). Each connection
+// records whether its current request reached ServeHTTP and, if not, the
+// status net/http wrote; connState logs that status when the connection
+// closes. Only the status code is read from what net/http writes, never the
+// request, so the line holds fixed values (PLAN.md §10).
+type trackedListener struct{ net.Listener }
+
+func (l trackedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &trackedConn{Conn: c}, nil
+}
+
+// trackedConn is one inbound connection. net/http calls ConnState and
+// ServeHTTP on the connection's own goroutine, but Shutdown reports idle
+// connections closed from another, so the fields are atomic.
+type trackedConn struct {
+	net.Conn
+	started atomic.Int64 // UnixNano when the current request's bytes arrived
+	handled atomic.Bool  // the current request reached ServeHTTP
+	refused atomic.Int32 // the status net/http wrote for it itself, or 0
+}
+
+// Write notes the status line of an answer written while no handler ran for
+// the current request: only net/http itself writes then.
+func (c *trackedConn) Write(p []byte) (int, error) {
+	if !c.handled.Load() && c.refused.Load() == 0 {
+		if status := statusOf(p); status != 0 {
+			c.refused.Store(int32(status))
+		}
+	}
+	return c.Conn.Write(p)
+}
+
+// CloseWrite passes the half-close through. net/http half-closes after a
+// 431 or 413 so the client can read the answer before the reset (§6); a
+// wrapper without this method would silently lose that.
+func (c *trackedConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
+
+// statusOf returns the status code if p starts with an HTTP/1.x status line,
+// or 0.
+func statusOf(p []byte) int {
+	const prefix = "HTTP/1.x "
+	if len(p) < len(prefix)+3 || string(p[:7]) != "HTTP/1." || p[8] != ' ' {
+		return 0
+	}
+	code := 0
+	for _, c := range p[len(prefix) : len(prefix)+3] {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		code = code*10 + int(c-'0')
+	}
+	return code
+}
+
+// connState starts a request's tracking when its first bytes arrive and,
+// when the connection closes, logs a request net/http refused itself.
+func (s *Server) connState(nc net.Conn, state http.ConnState) {
+	c, ok := nc.(*trackedConn)
+	if !ok {
+		return
+	}
+	switch state {
+	case http.StateActive:
+		c.started.Store(time.Now().UnixNano())
+		c.handled.Store(false)
+		c.refused.Store(0)
+	case http.StateClosed:
+		status := c.refused.Load()
+		if status == 0 || c.handled.Load() {
+			return
+		}
+		d := time.Since(time.Unix(0, c.started.Load()))
+		s.log.LogAttrs(context.Background(), slog.LevelInfo, "request",
+			slog.String("request_id", requestID(nil)),
+			slog.String("route", routeUnmatched),
+			slog.Int("status", int(status)),
+			slog.Int64("duration_ms", d.Milliseconds()),
+			slog.String("error", errClassHTTPServer),
+		)
 	}
 }
 
