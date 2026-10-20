@@ -613,7 +613,7 @@ the same request has it in `error`, with the detail in `auth_reason`.
 | `upstream_unreachable` | DNS for TARA, the outbound firewall, `HTTPS_PROXY` and `NO_PROXY`, `RELAY_UPSTREAM_CA_FILE` (still TARA's CAs?), or an outage. Also an answer that is not valid HTTP/1.1 or whose header is over 32 KiB: check `RELAY_UPSTREAM_URL` and anything that rewrites answers. |
 | `upstream_too_large`   | A TARA answer over 64 KiB. Unusual for token calls; check `RELAY_UPSTREAM_URL`.                                                             |
 | `not_ready`            | The signing keys (section 10.2). `/readyz` also answers it while the relay shuts down.                                                    |
-| `too_busy`             | More than 50 token exchanges at once, each with a valid FIT. Logins rarely come close; check for a slow TARA (`upstream_timeout`) or a replayed FIT (`PLAN.md` §14 Phase 4, SR-1). |
+| `too_busy`             | More than 50 token exchanges at once, each with a valid FIT. Logins rarely come close; check for a slow TARA (`upstream_timeout`) or a FIT replayed by someone who saw it in clear (`PLAN.md` §14 Phase 4, SR-1). |
 | `upstream_timeout`     | A slow provider, or a firewall that silently drops outbound packets.                                                                      |
 
 Two more `error` values have no code, because nobody receives an answer:
@@ -643,7 +643,7 @@ itself log only
 | `issuer`         | `iss` is not `forge/invocation-token`                                         | Not a FIT.                                                                       |
 | `audience`       | The token is not for `RELAY_APP_ID`                                           | `RELAY_APP_ID` differs from the admin-page block.                                |
 | `dates`          | `exp` or `nbf` missing, malformed or out of range, or `exp` not after `nbf`    | Not a valid FIT.                                                                 |
-| `lifetime`       | `exp` is more than 5 minutes after `nbf`; Forge's tokens live 25 s           | Not a token Forge minted for one call. Report it if Forge calls fail this way.   |
+| `lifetime`       | `exp` is more than 5 minutes after `nbf`; Forge's tokens span 55 s           | Not a token Forge minted. Report it if Forge calls fail this way.                |
 | `expired`        | The token expired, beyond the skew                                            | The host clock (section 7).                                                      |
 | `not_yet_valid`  | The token is not valid yet, beyond the skew                                   | The host clock (section 7).                                                      |
 | `environment`    | The app environment is not `RELAY_ENVIRONMENT_ID`                             | The block was copied from another app environment.                               |

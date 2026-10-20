@@ -15,10 +15,11 @@ import (
 // Issuer is the only accepted iss claim (PLAN.md §4.4).
 const Issuer = "forge/invocation-token"
 
-// MaxLifetime caps exp - nbf (PLAN.md §4.4, SR-6). Forge's FITs live 25 s
-// (Phase 0); a token valid for longer was not minted for one invocation, and
-// would stay usable long after a leak. The cap leaves room for Atlassian to
-// lengthen the lifetime twelvefold before relays start refusing.
+// MaxLifetime caps exp - nbf (PLAN.md §4.4, SR-6). Forge's FITs span 55 s,
+// with nbf 30 s before iat (SR-1 spike); a token valid for much longer was
+// not minted by Forge, and would stay usable long after a leak. The cap
+// leaves more than fivefold room before a longer Forge lifetime breaks
+// relays.
 const MaxLifetime = 5 * time.Minute
 
 // Policy is what a FIT must match: the relay's app, Forge environment and

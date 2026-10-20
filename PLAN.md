@@ -10,8 +10,9 @@ by an agent that did not write it, with no open findings; the last moved
 the concurrency slot after the FIT check (SR-2, owner 2026-10-20). An
 end-to-end security review on 2026-10-20 refused everything it should;
 of its low and info findings, SR-4, SR-5, SR-8 and SR-9 are fixed and
-SR-6 decided, while SR-1 (FIT replay) waits for evidence on `jti` and
-SR-7 for the owner (§14 Phase 4). Not tagged, pushed or
+SR-6 decided; SR-1 (FIT replay) is closed without a fix, since a spike
+showed Forge reuses FITs across calls, and SR-7 waits for the owner (§14
+Phase 4). Not tagged, pushed or
 published; no workflow has run, since the repository has no remote yet.
 Still open: the PINNED gate, source CI on GitHub and the Phase 2 release
 verifications._
@@ -189,12 +190,12 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   beyond the cap below.
 - **Lifetime cap and `iat` (2026-10-20, SR-6).** `exp - nbf` must be at
   most `MaxLifetime = 5 minutes`, or the token is refused with
-  `auth_reason` `lifetime`. A FIT lives 25 s (Phase 0), so the cap refuses
-  only a token Atlassian did not mint for one invocation, while leaving
-  twelvefold room before a longer Forge lifetime breaks relays. `iat` stays
-  ignored: Forge documents neither it nor `jti` (they appear only in the
-  example payload of _Forge Remote essentials_), and `nbf` already bounds
-  the start. No pin on the remote key: the app has one remote, and Phase 0
+  `auth_reason` `lifetime`. A FIT is usable about 25 s after it is issued
+  (Phase 0), and its `exp - nbf` is 55 s, since Forge sets `nbf` 30 s
+  before `iat` (SR-1 spike, 2026-10-20). The cap therefore leaves more
+  than fivefold room before a longer Forge lifetime breaks relays. `iat`
+  stays ignored: every FIT carries it, but Forge does not document it,
+  and `nbf` already bounds the start. No pin on the remote key: the app has one remote, and Phase 0
   did not record which claim names it on this call path. The cap narrows
   the accepted contract; no relay is released, so under §4.6 it is part of
   the first release.
@@ -1150,27 +1151,36 @@ promotes unreleased work from `main` into a patch release.
    live client from RIA and the relay on a registered IP.
 4. **Acceptance:** §13 by hand, plus a security review of both sides.
    An end-to-end review ran on 2026-10-20 against a development build
-   (§16). Its low and info findings, as handled on 2026-10-20; SR-1 and
-   SR-7 wait for the owner before v1:
+   (§16). Its low and info findings, as handled on 2026-10-20; SR-7
+   waits for the owner before v1:
    - SR-1: no replay protection. A FIT seen in clear (a TLS-terminating hop,
      a proxy that logs headers) can be reused with any body until
      `exp + RELAY_CLOCK_SKEW`, and the relay adds the credential each time.
      Check first whether FITs carry `jti` and whether Forge ever reuses one;
      then a seen set for `POST /oidc/token` until `exp + skew`.
-     **Blocked on evidence (2026-10-20).** _Forge Remote essentials_
-     documents neither `jti` nor `iat`: both appear only in its example
-     payload (a 40-hex `jti`), and nothing says whether Forge mints one FIT
-     per `invokeRemote` call or reuses one, within an invocation or across
-     invocations. Phase 0 recorded neither. If Forge reused a FIT, a seen
-     set would refuse a legitimate login (two users on one site within the
-     25 s lifetime), so none was built. Needed first: a spike that logs, per token POST, only
-     whether `jti` is present and a short hash of it and of the signature,
-     over two `invokeRemote` calls in one invocation and over back-to-back
-     logins. If every call carries a fresh `jti`, key the set by `jti`
-     (else the signature hash), hold it until `exp + skew` on one replica,
-     and answer a replay `401 invalid_token` with `auth_reason` `replayed`.
-     A seen set still loses to an attacker who replays first; it stops
-     later reuse with other bodies.
+     **Closed, not built (2026-10-20): Forge reuses FITs.** _Forge Remote
+     essentials_ documents neither `jti` nor `iat`, so an owner-approved
+     spike measured it in the Forge app's development environment
+     (8.9.0, a never-merged branch; the app's `PLAN.md` §4.7, "FIT reuse
+     spike"). A temporary route in the `sso` web trigger, the function
+     `/cb` runs in, made three sequential and three parallel `invokeRemote`
+     calls per request to `GET /relay/v1/info`. A standard-library
+     inspector at the remote URL verified each FIT against the Forge JWKS
+     and logged only claim names, the dates, whether `jti` was present and
+     12-character hashes of `jti` and the signature. Of 24 calls, all
+     validly signed: three invocations back to back made 18 calls with only
+     11 distinct FITs, one of them used for 4 calls across all three
+     invocations within about 3 s; one invocation 30 s later made 6 calls
+     with 6 FITs. A `jti` always came with the same signature. Every FIT
+     carries `jti` and `iat`; `nbf` is `iat - 30 s` and `exp - nbf` 55 s.
+     Claims: `app`, `aud`, `context`, `exp`, `iat`, `iss`, `jti`, `nbf`.
+     A one-time-use set, by `jti` or by signature, would therefore refuse
+     legitimate logins, such as two users on one site within seconds, so
+     it is not built. The exposure stays as described above: a FIT seen in
+     clear is usable for about 35 s with the default skew. The mitigations
+     are the deployment's: TLS terminated only by the customer's own front
+     end, which must not log headers (`docs/SETUP.md` 6.3), and TARA's
+     single-use codes bound to PKCE.
    - SR-4 (fixed 2026-10-20): an inline `RELAY_UPSTREAM_AUTH` (rather
      than `_FILE`) shows in `docker inspect` and the process environment;
      startup now warns about it (§10).
@@ -1196,7 +1206,7 @@ promotes unreleased work from `main` into a patch release.
    Not covered by that review, still to do: TARA live (the allowlist and
    live client), the Caddy front end with its `remote_ip` filter and
    inbound HTTP/2, load and soak with a JWKS outage, PINNED (§15 Q3),
-   `govulncheck` on a release build, and SR-1 with a real FIT.
+   and `govulncheck` on a release build.
 5. **Publish:** public repository, `LICENSE`, `SECURITY.md`, support policy,
    `v1.0.0`.
 
@@ -1610,8 +1620,8 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     clock (the test VM's ran about 1 s ahead) was already in
     `docs/SETUP.md` 7.
   - SR-4, SR-5, SR-8 and SR-9 were fixed and SR-6 decided on
-    2026-10-20; SR-1 waits for evidence on `jti` and FIT reuse, and SR-7 was
-    not built. Details and what the review did not cover: §14, Phase 4.
+    2026-10-20; SR-1 was closed without a fix after a spike showed Forge
+    reuses FITs, and SR-7 was not built. Details and what the review did not cover: §14, Phase 4.
 
 **Codex review, round 2, security hardening (2026-10-20).** Reviewed
 `main...claude/security-review-hardening` through `1d8f418` against this
@@ -1659,6 +1669,9 @@ since the same values parsed a line earlier. `gofmt`, `go vet`,
 image) and `govulncheck` (no vulnerabilities) pass on Codex's tip. The
 owner's open decisions remain: refusing rather than warning on a
 non-TARA upstream, the 5-minute cap, the SR-1 spike and SR-7 (§14).
+The SR-1 spike then ran the same day and showed that Forge reuses FITs,
+so SR-1 is closed without a seen set (§14); the 5-minute cap fits the
+measured 55 s `exp - nbf`.
 
 Primary references consulted for the review on 2026-10-15:
 

@@ -247,8 +247,8 @@ SR-6). `iat` is ignored like any other claim. Dates are compared exactly
 at nanosecond resolution: for the validity window, a fractional `exp` rounds
 down and `nbf` rounds up; the lifetime cap instead rounds `exp` up and `nbf`
 down. Sub-nanosecond rounding can only reject in either check. Atlassian's example token
-lives 25 s; the relay depends on that lifetime only through the 5-minute
-cap.
+lives 25 s after `iat`; Forge sets `nbf` 30 s before `iat`, so `exp - nbf`
+is 55 s. The relay depends on that lifetime only through the 5-minute cap.
 
 ### 5.4 Site pin (D5)
 
