@@ -1,6 +1,6 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-17: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+_Status 2026-10-20: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
 and checked locally (§16). Phase 0 ran on 2026-10-16: every gate passed
 except PINNED, which needs a site with data residency (§14). All three
 review rounds are done for every code change on `main`, with no open
@@ -14,8 +14,10 @@ docs-only commits without review: this status, the TARA wording of
 `AGENTS.md`, §1 and the diagrams, and a pass that brought every document in
 line with the code. All other branches were deleted the same day. Not
 tagged, pushed or published; no workflow has run, since the repository has
-no remote yet. Still open: the PINNED gate, source CI on GitHub and the
-Phase 2 release verifications.
+no remote yet. An end-to-end security review on
+2026-10-20 refused everything it should; its low and info findings
+SR-1 to SR-9 await the owner (§16). Still open: the PINNED gate, source CI
+on GitHub and the Phase 2 release verifications.
 Adding `remotes` to the Forge app's main line still needs the owner's
 approval (Oktul eID SSO, `PLAN.md` §4.7)._
 
@@ -1482,26 +1484,30 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
   `400 unauthorized_client` wrapped; a wrong CA file `502
   upstream_unreachable` without sending the credential; an unreadable CA
   file stops startup.
-- **Open findings (low or info):**
-  - R-1: no replay protection; a FIT seen in clear can be reused until
+- **Open findings (low or info), awaiting the owner.** Numbered SR-
+  (security review) so they do not clash with the R- requirements in §6.
+  - SR-1: no replay protection; a FIT seen in clear can be reused until
     `exp + RELAY_CLOCK_SKEW` with any body. Check whether FITs carry `jti`
     before adding a seen set.
-  - R-2 (reproduced): the slot is taken before the FIT check; 80 parallel
+  - SR-2 (reproduced): the slot is taken before the FIT check; 80 parallel
     unknown-`kid` requests got 30 `503 too_busy` while one JWKS refresh
-    ran (about 60 ms). Needs a §3 order change.
-  - R-3: the Caddyfile's Atlassian-range filter is commented out and
-    there is no rate or connection limit.
-  - R-4: an inline `RELAY_UPSTREAM_AUTH` gets no warning.
-  - R-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin, not only TARA.
-  - R-6 to R-8 (info): `iat` ignored and `exp - nbf` uncapped; no
+    ran (about 60 ms). The unknown-key cooldown (§4.5) limits this to one
+    refresh a minute. Fixing it changes the order in §4.2, under §4.6.
+  - SR-3: the Caddyfile's Atlassian-range filter is commented out, and it
+    bounds only the connections to the relay, not client connections or
+    their rate (`docs/SETUP.md` 6.3 asks for both).
+  - SR-4: an inline `RELAY_UPSTREAM_AUTH` gets no warning.
+  - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin, not only TARA.
+  - SR-6 to SR-9 (info): `iat` ignored and `exp - nbf` uncapped; no
     `Content-Type` check on forwarded bodies; no `Cache-Control: no-store`
-    or `nosniff` on relay answers. Errors Go's server answers itself (431,
+    or `nosniff` on relay answers; errors Go's server answers itself (431,
     400) are not logged.
-  - Docs: a front end must pass 5xx answers through unchanged (the
-    Cloudflare tunnel replaced the relay's `502` with its own page, so the
-    app saw no `Relay-Protocol`); anything that terminates TLS in front of
-    the relay sees the code, verifier and TARA's token answer (personal
-    data); the host needs NTP (the test VM's clock ran about 1 s ahead).
+  - Docs, missing from `docs/SETUP.md` 6.3: a front end must pass 5xx
+    answers through unchanged (the Cloudflare tunnel replaced the relay's
+    `502` with its own page, so the app saw no `Relay-Protocol`), and
+    anything that terminates TLS in front of the relay sees the code,
+    verifier and TARA's token answer (personal data). The host clock (the
+    test VM's ran about 1 s ahead) is already covered by `docs/SETUP.md` 7.
 
 Primary references consulted for the review on 2026-10-15:
 
