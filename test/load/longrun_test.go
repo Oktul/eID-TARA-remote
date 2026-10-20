@@ -119,6 +119,7 @@ func TestVerdictKeysExpire(t *testing.T) {
 		{"readyz_never_failing_fails", map[string]int64{}, nil, true},
 		{"livez_failing_fails", map[string]int64{readyzExpired: 4, "/livez status 503": 1}, nil, true},
 		{"readyz_timeout_fails", map[string]int64{readyzExpired: 4, "/readyz timeout": 1}, nil, true},
+		{"other_readyz_503_fails", map[string]int64{readyzExpired: 4, "/readyz status 503": 1}, nil, true},
 		{"failed_timeline_check_fails", map[string]int64{readyzExpired: 4}, []string{"keys never expired"}, true},
 	}
 	for _, tc := range cases {
@@ -144,6 +145,34 @@ func TestVerdictKeysExpire(t *testing.T) {
 	}
 	if got := verdict(scenarioNamed(t, "full"), r); len(got) == 0 {
 		t.Error("full passed with a failed /readyz probe")
+	}
+}
+
+func TestHealthExpiryRequiresTheRelayNotReadyAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, protocol, contentType, body string
+		want                                    string
+	}{
+		{"expiry", "not_ready", "1", "application/json", `{"error":"not_ready"}`, "503 not_ready"},
+		{"overload", "too_busy", "1", "application/json", `{"error":"too_busy"}`, "status 503"},
+		{"proxy", "", "", "text/html", "unavailable", "status 503"},
+		{"wrong_protocol", "not_ready", "2", "application/json", `{"error":"not_ready"}`, "status 503"},
+		{"wrong_body", "not_ready", "1", "application/json", `{"error":"internal_error"}`, "status 503"},
+		{"wrong_content_type", "not_ready", "1", "text/plain", `{"error":"not_ready"}`, "status 503"},
+		{"oversized", "not_ready", "1", "application/json", strings.Repeat("x", maxSmallBody+1), "response_too_large"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: 503, Request: r,
+					Header: http.Header{"Relay-Error": {tc.code}, "Relay-Protocol": {tc.protocol}, "Content-Type": {tc.contentType}},
+					Body:   io.NopCloser(strings.NewReader(tc.body)),
+				}, nil
+			})}
+			if got := healthCheck(t.Context(), c, "http://relay.test/readyz"); got != tc.want {
+				t.Errorf("healthCheck = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

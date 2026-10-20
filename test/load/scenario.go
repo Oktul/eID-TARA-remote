@@ -197,7 +197,7 @@ func runScenario(ctx context.Context, e *env, s scenario, d time.Duration) resul
 
 // readyzExpired is how the probe reports a relay whose keys have expired
 // (PLAN.md §4.5).
-const readyzExpired = "/readyz status 503"
+const readyzExpired = "/readyz 503 not_ready"
 
 // verdict lists the checks a scenario failed. They are the acceptance
 // properties of PLAN.md §13: the full load passes the concurrency cap,
@@ -523,8 +523,21 @@ func healthCheck(ctx context.Context, c *http.Client, url string) string {
 	}
 	// The class comes from the read below; a close error cannot change it.
 	defer func() { _ = resp.Body.Close() }()
-	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, maxSmallBody)); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSmallBody+1))
+	if err != nil {
 		return errorClass(err)
+	}
+	if len(body) > maxSmallBody {
+		return "response_too_large"
+	}
+	// Only the relay's exact expiry answer may pass the outage exception
+	// (PLAN.md §4.1, §4.3). A proxy's 503 or another relay error must fail.
+	if resp.StatusCode == http.StatusServiceUnavailable &&
+		slices.Equal(resp.Header.Values("Relay-Protocol"), []string{"1"}) &&
+		slices.Equal(resp.Header.Values("Relay-Error"), []string{"not_ready"}) &&
+		slices.Equal(resp.Header.Values("Content-Type"), []string{"application/json"}) &&
+		bytes.Equal(body, []byte(`{"error":"not_ready"}`)) {
+		return "503 not_ready"
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "status " + strconv.Itoa(resp.StatusCode)

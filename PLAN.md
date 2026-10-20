@@ -1716,6 +1716,17 @@ to round 2, so the owner had `main` fast-forwarded to
 `claude/round3-security-review-hardening` with these commits reviewed by
 Claude alone.
 
+**Codex review, round 2, soak and JWKS outage (2026-10-20).** Review fixes
+live on `codex/review-soak-jwks-outage`; Claude's commit is unchanged.
+The outage's readiness exception now requires the exact relay
+`503 not_ready` answer, including its protocol, error header, content type
+and body (§4.1, §4.3). Previously any `/readyz` 503, including a proxy
+failure or `too_busy`, counted as evidence of expired keys. Negative
+fixtures cover these answers and oversized health bodies.
+`gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
+and `govulncheck ./...` pass in order, with no vulnerabilities found; race
+tests use the pinned Go 1.27.2 Linux builder with networking disabled.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
