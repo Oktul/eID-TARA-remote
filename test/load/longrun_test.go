@@ -243,7 +243,7 @@ func TestPacedCountsBacklogInsteadOfQueueing(t *testing.T) {
 		go func() {
 			defer close(stopped)
 			paced(ctx, t.Context(), e, tl, func(int) (string, []byte, error) { return "token", nil, nil },
-				func(string, time.Time) { seen.Add(1) })
+				func(int, string, time.Time) { seen.Add(1) })
 		}()
 		<-started
 		<-ctx.Done()
@@ -385,6 +385,54 @@ func TestOutageRejectsUpstreamCallsHiddenByNotReady(t *testing.T) {
 				}
 				if f.jwksDown.Load() || r.outcomes[outcomeNotReady] == 0 || r.probe.failures[readyzExpired] == 0 {
 					t.Errorf("outage did not expire and restore keys: outcomes %v, probes %v", r.outcomes, r.probe.failures)
+				}
+			})
+		})
+	}
+}
+
+func TestSoakMatchesAnswersToTheSentFIT(t *testing.T) {
+	k := key(t)
+	for _, tc := range []struct {
+		name, wantError string
+		forwardAll      bool
+		wantCount       int64
+	}{
+		{"bad_signatures_accepted", "invalid_request_not_rejected", true, 4},
+		{"valid_FITs_refused", "valid_request_not_forwarded", false, 35},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				// A zero-byte body is supported by the generator: forwarding a
+				// bad FIT must fail even when its empty body matches the fixture.
+				f := &fixture{responseBody: []byte("response")}
+				var served atomic.Int64
+				c := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					n := served.Add(1)
+					if n == 40 {
+						cancel()
+					}
+					resp := &http.Response{StatusCode: 401, Header: http.Header{"Relay-Error": {"invalid_token"}}, Body: http.NoBody, Request: req}
+					if tc.forwardAll || n == 1 {
+						f.upstreamCalls.Add(1)
+						resp.StatusCode = 200
+						resp.Header = http.Header{"Relay-Upstream-Status": {"200"}}
+						resp.Body = io.NopCloser(bytes.NewReader(f.responseBody))
+					}
+					return resp, nil
+				})}
+				e := &env{
+					relay: target{base: "http://relay.test"}, pacedClient: c, fixture: f,
+					fits: newMinter(k, time.Now), workers: 1, rate: 200,
+					reportEvery: time.Second, progress: io.Discard,
+				}
+				tl := newTally()
+				soak(ctx, t.Context(), e, tl)
+				r := tl.result()
+				if !maps.Equal(r.errors, map[string]int64{tc.wantError: tc.wantCount}) {
+					t.Errorf("errors = %v, want %d %s", r.errors, tc.wantCount, tc.wantError)
 				}
 			})
 		})

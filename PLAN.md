@@ -1744,6 +1744,13 @@ complete outage regression also passes 20 race-enabled repetitions. No
 open findings or disagreements remain in this review. Claude's round 3 is
 still required; no merge, push or tag was performed. The VM acceptance
 runs, including the 72-hour soak, remain open.
+The soak now matches each answer to the FIT it sent (§4.4, §13). Accepting
+either outcome in aggregate could pass a relay that forwarded bad
+signatures (with `-body-bytes 0`) or refused most valid FITs. The paced
+observer now includes the request sequence; both faults are counted as
+fixed error classes and have fake-clock regression cases.
+All five required checks pass again with no vulnerabilities found, and the
+new request-specific soak tests pass 100 race-enabled repetitions.
 
 Primary references consulted for the review on 2026-10-15:
 

@@ -52,10 +52,10 @@ func outageLength(e *env) time.Duration {
 // goroutine. At most e.workers are in flight: a request that would exceed
 // that is counted as a "backlog" error instead of queued, so a slow relay
 // shows up in the report instead of in the generator's memory. seen, if
-// set, gets every answered request's outcome and the time it was sent.
+// set, gets every answered request's sequence, outcome and send time.
 func paced(ctx, abort context.Context, e *env, t *tally,
 	pick func(seq int) (token string, body []byte, err error),
-	seen func(outcome string, sent time.Time),
+	seen func(seq int, outcome string, sent time.Time),
 ) {
 	c := e.pacedClient
 	defer c.CloseIdleConnections()
@@ -86,7 +86,7 @@ func paced(ctx, abort context.Context, e *env, t *tally,
 			defer func() { <-slots }()
 			sent := time.Now()
 			if o := send(abort, c, e, t, token, body, limit); o != "" && seen != nil {
-				seen(o, sent)
+				seen(seq, o, sent)
 			}
 		})
 	}
@@ -123,7 +123,18 @@ func soak(ctx, abort context.Context, e *env, t *tally) {
 			return s.badSignature, nil, err
 		}
 		return s.valid, e.fixture.requestBody, err
-	}, nil)
+	}, func(seq int, outcome string, _ time.Time) {
+		// The mix alone cannot prove rejection: accepting a bad signature,
+		// or refusing a valid FIT, must fail even if both outcomes appear
+		// elsewhere in the run (PLAN.md §4.4, §13).
+		if seq%soakInvalidEvery == soakInvalidEvery-1 {
+			if outcome != outcomeInvalid {
+				t.flag("invalid_request_not_rejected")
+			}
+		} else if outcome != outcomeForwarded {
+			t.flag("valid_request_not_forwarded")
+		}
+	})
 	close(done)
 	wg.Wait()
 }
@@ -274,7 +285,7 @@ func jwksOutage(ctx, abort context.Context, e *env, t *tally) {
 		paced(ctx, abort, e, t, func(int) (string, []byte, error) {
 			s, err := e.fits.get()
 			return s.valid, e.fixture.requestBody, err
-		}, func(o string, at time.Time) { tl.record(o, at.Sub(start)) })
+		}, func(_ int, o string, at time.Time) { tl.record(o, at.Sub(start)) })
 	}()
 	select {
 	case <-restore.C:
