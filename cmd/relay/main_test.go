@@ -377,9 +377,11 @@ func TestServeStartsAndStops(t *testing.T) {
 		name       string
 		env        map[string]string
 		credential string
+		inline     bool // the inline-credential warning is expected (SR-4)
 	}{
-		{"credential_from_env_shows_set", with(validEnv(), "RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker), "set"},
-		{"credential_from_file_shows_set_from_file", with(validEnv(), "RELAY_UPSTREAM_AUTH_FILE", credentialFile), "set (from file)"},
+		{"credential_from_env_shows_set", with(validEnv(), "RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker), "set", true},
+		{"credential_from_file_shows_set_from_file", with(validEnv(), "RELAY_UPSTREAM_AUTH_FILE", credentialFile), "set (from file)", false},
+		{"no_credential_no_warning", validEnv(), "not set", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -443,6 +445,13 @@ func TestServeStartsAndStops(t *testing.T) {
 				t.Errorf("startup RELAY_PORT = %v, want %d", startup["RELAY_PORT"], r.port)
 			}
 
+			inline := find(lines, "credential set inline")
+			switch {
+			case tc.inline && (inline == nil || inline["level"] != "WARN" || inline["setting"] != "RELAY_UPSTREAM_AUTH"):
+				t.Errorf("inline credential line = %v, want a WARN naming RELAY_UPSTREAM_AUTH", inline)
+			case !tc.inline && inline != nil:
+				t.Errorf("inline credential line = %v without an inline credential", inline)
+			}
 			if l := find(lines, "unknown setting"); l == nil || l["level"] != "WARN" || l["name"] != "RELAY_UNKNOWN_SETTING" {
 				t.Errorf("unknown setting line = %v, want a WARN naming RELAY_UNKNOWN_SETTING", l)
 			}

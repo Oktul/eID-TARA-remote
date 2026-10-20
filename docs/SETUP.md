@@ -552,6 +552,7 @@ Which lines are supported, and until when: `docs/SUPPORT.md`.
 | `invalid configuration`, `setting`, `reason` | The setting named, against `docs/PROTOCOL.md` section 8. The process exits with code 2, and Compose and Kubernetes restart it until you fix it.  |
 | `unknown setting`, `name`                 | A mistyped `RELAY_*` name. It often explains a `required` error for the setting you meant.                                                             |
 | `unknown setting`, `name` `RELAY_* (malformed name)` | A `RELAY_` variable whose name has characters other than `A-Z`, `0-9` and `_`, or more than 64 bytes; the name is not logged. Usually `:` was typed for `=` in the deploy file, so the value became part of the name. Correct the entry, and if it holds the credential, remove it from the deploy file and use the secret file (section 3). |
+| `credential set inline`, `setting` `RELAY_UPSTREAM_AUTH` | The credential is in the environment, where `docker inspect`, orchestrator UIs and the process environment show it. Move it to a secret file and set `RELAY_UPSTREAM_AUTH_FILE` instead (section 3). |
 | `listen failed`                           | `RELAY_PORT` is in use, or is a port the runtime does not let an unprivileged user open: the relay runs without capabilities.                         |
 | `stopped`, `error` `shutdown_timeout`     | In-flight requests ran longer than `RELAY_SHUTDOWN_GRACE` when the relay stopped.                                                                      |
 

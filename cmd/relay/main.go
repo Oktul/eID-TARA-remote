@@ -118,6 +118,12 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		slog.Bool("jwks_proxy", forward.ProxyInUse(cfg.JWKSURL)),
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "starting", append(attrs, cfg.Summary()...)...)
+	if cfg.Credential != nil && !cfg.CredentialFromFile {
+		// An inline secret shows in docker inspect, orchestrator UIs and
+		// /proc/<pid>/environ; _FILE keeps it in a secret mount (PLAN.md §8,
+		// SR-4). A warning, not a refusal, so a test setup still starts.
+		logger.Warn("credential set inline", "setting", "RELAY_UPSTREAM_AUTH", "use", "RELAY_UPSTREAM_AUTH_FILE")
+	}
 
 	keys := fit.NewCache(cfg.JWKSURL, jwksClient, cfg.JWKSRefresh, cfg.JWKSMaxAge, logger)
 	verifier := fit.NewVerifier(fit.Policy{

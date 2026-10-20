@@ -624,7 +624,11 @@ spike scope and explicit gates, and basic CI moves into Phase 1 (§14).
   (S-7). Tests inject secret markers into rejected inputs and assert that
   neither request logs nor startup diagnostics contain them.
 - **Startup** (O-5): the version, Go version and a summary of the settings.
-  The credential shows as `set (from file)`, never its value (S-8). The
+  The credential shows as `set (from file)`, never its value (S-8). A
+  credential given inline in `RELAY_UPSTREAM_AUTH` logs a `credential set
+  inline` warning, since `docker inspect`, orchestrator UIs and the process
+  environment show it (2026-10-20, SR-4); it is not refused, so a test
+  setup still starts. The
   summary prints the configured upstream HTTPS origin and
   JWKS URL, which can hold no userinfo or query (§8).
 - **Deploy files:**
@@ -1125,8 +1129,9 @@ promotes unreleased work from `main` into a patch release.
      `exp + RELAY_CLOCK_SKEW`, and the relay adds the credential each time.
      Check first whether FITs carry `jti` and whether Forge ever reuses one;
      then a seen set for `POST /oidc/token` until `exp + skew`.
-   - SR-4: an inline `RELAY_UPSTREAM_AUTH` (rather than `_FILE`) shows in
-     `docker inspect` and the process environment, without a warning.
+   - SR-4 (fixed 2026-10-20): an inline `RELAY_UPSTREAM_AUTH` (rather
+     than `_FILE`) shows in `docker inspect` and the process environment;
+     startup now warns about it (§10).
    - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin; a wrong or
      social-engineered value sends TARA's credential there. Warn or refuse
      unless the host is TARA's, with an explicit override.
