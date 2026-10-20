@@ -1645,8 +1645,20 @@ plan and the contributing checklist. Fixes live on
 
 SR-1 still needs the FIT-reuse evidence and SR-7 the owner's decision
 recorded in §14; neither is silently closed by this review. No
-disagreements. Claude's round 3 remains required before merging; no merge,
-push or tag was performed.
+disagreements. No merge, push or tag was performed.
+
+**Claude review, round 3, security hardening (2026-10-20).** Reviewed
+`main...codex/review-security-review-hardening`, Codex's three commits in
+particular, against this plan and the contributing checklist. No new
+findings and no disagreements; all three fixes are accepted as made.
+Removing the `StateIdle` reset makes `TestPipelinedTransportRejection`
+fail again, so it guards a real case. The lifetime cap now parses each
+date twice with opposite rounding; the discarded errors cannot occur,
+since the same values parsed a line earlier. `gofmt`, `go vet`,
+`staticcheck`, `go test ./...`, `go test -race ./...` (Go 1.27.2 Linux
+image) and `govulncheck` (no vulnerabilities) pass on Codex's tip. The
+owner's open decisions remain: refusing rather than warning on a
+non-TARA upstream, the 5-minute cap, the SR-1 spike and SR-7 (§14).
 
 Primary references consulted for the review on 2026-10-15:
 
