@@ -120,7 +120,8 @@ these checks.
 3. Take a concurrency slot without waiting, or answer `503 too_busy` (R-5).
    Only an authenticated token POST takes one, so callers without a valid
    FIT, including those waiting for an unknown key, cannot crowd out token
-   exchanges (owner, 2026-10-20, SR-2 in §16; it was the first check).
+   exchanges; the proxy's connection limit (§6) bounds them instead (owner,
+   2026-10-20, SR-2 in §16; it was the first check).
 4. Read the body up to the limit, or answer `413 body_too_large`.
 5. Forward (§5).
 
@@ -444,9 +445,9 @@ The proxy closes its idle connections to the relay before the relay's 60 s
 never written onto a connection the relay is closing (R-1, R-8; 2026-10-15).
 The relay port is reachable only by that proxy and local/cluster health
 probes, never directly from the public network. Health probes bypass the
-forwarding semaphore, so a full relay answers `503 too_busy` to token calls
-without causing a liveness restart. The relay serves plain HTTP only; TLS is the proxy's
-job (D6). Built-in TLS (`RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE`, S-10)
+forwarding semaphore, so a full relay answers `503 too_busy` to token
+calls without causing a liveness restart. The relay serves plain HTTP
+only; TLS is the proxy's job (D6). Built-in TLS (`RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE`, S-10)
 was removed before the first release (owner, 2026-10-16): it served only a
 relay exposed without a proxy, which this section does not support, and a
 customer who wants TLS on the internal hop adds it with a sidecar or mesh.
@@ -937,11 +938,12 @@ promotes unreleased work from `main` into a patch release.
     and recovery, duplicate IDs, malformed/empty/oversized sets and atomic
     replacement. Flood with different unknown IDs to prove the global
     one-a-minute limit and single fetch; show known-key calls do not wait,
-    unknown-key waits are bounded and cancel promptly, and one caller's
-    cancellation does not cancel the shared worker. Inject a clock/fetcher
-    so these tests do not wait for real refresh intervals. The fetcher is an
-    injected function; the clock is the fake clock of a `testing/synctest`
-    bubble, so production code needs no timer interface (2026-10-15).
+    unknown-key waits are bounded and cancel promptly, hold no forwarding
+    slot, and one caller's cancellation does not cancel the shared worker.
+    Inject a clock/fetcher so these tests do not wait for real refresh
+    intervals. The fetcher is an injected function; the clock is the fake
+    clock of a `testing/synctest` bubble, so production code needs no timer
+    interface (2026-10-15).
   - **Forwarding:** the fixed `POST /oidc/token` route, path tricks, header filtering, the
     credential overriding a caller's header, no redirects, size limits before
     anything is sent, `504` on timeout, cancel on disconnect. Cover origin-only
@@ -965,9 +967,10 @@ promotes unreleased work from `main` into a patch release.
   - load above the concurrency cap with container memory under 128 MB
     (`test/load`), through the documented proxy limits. Include full-sized
     simultaneous request/response bodies, slow headers, idle connections,
-    invalid-token floods and many distinct unknown key IDs. Record measured
-    peak memory, connection counts, CPU and health-probe behavior; overload
-    must not cause a liveness restart or unbounded memory growth;
+    invalid-token floods and many distinct unknown key IDs, which must never
+    answer `too_busy`. Record measured peak memory, connection counts, CPU
+    and health-probe behavior; overload must not cause a liveness restart
+    or unbounded memory growth;
   - a 72-hour soak on a VM;
   - killing the process gives a healthy restart within 10 s;
   - SIGTERM lets in-flight requests finish;

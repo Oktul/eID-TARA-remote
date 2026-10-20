@@ -97,6 +97,9 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
 	expectHealthy(t, r.do(t, "GET", "/readyz", nil, nil))
 	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "too_busy", true)
+	// The slot comes before the body, so an oversized token POST is busy too.
+	big := strings.NewReader(strings.Repeat("a", server.MaxRequestBytes+1))
+	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), big), 503, "too_busy", true)
 	expectRelayError(t, r.do(t, "POST", "/oidc/token", nil, nil), 401, "invalid_token", false)
 	expectRelayError(t, r.do(t, "POST", "/oidc/other", bearer(fit), nil), 404, "route_not_allowed", true)
 	if got := r.do(t, "GET", "/relay/v1/info", bearer(fit), nil); got.status != http.StatusOK {
@@ -116,7 +119,20 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 		}
 	}
 	// A slot is freed before its request's log line is written.
-	r.logs.waitRequests(t, server.MaxConcurrent+6)
+	busy := 0
+	for _, line := range r.logs.waitRequests(t, server.MaxConcurrent+7) {
+		if field(line, "error") != "too_busy" {
+			continue
+		}
+		busy++
+		// Only verified data: the matched route and the signed site.
+		if field(line, "route") != "POST /oidc/token" || field(line, "cloud_id") != testSiteA {
+			t.Errorf("too_busy log: route %q, cloud_id %q", field(line, "route"), field(line, "cloud_id"))
+		}
+	}
+	if busy != 2 {
+		t.Errorf("too_busy log lines = %d, want 2", busy)
+	}
 	if got := r.do(t, "POST", "/oidc/token", bearer(fit), nil); got.status != http.StatusOK {
 		t.Errorf("after release: status %d, want 200", got.status)
 	}
@@ -236,15 +252,18 @@ func TestKeyWaitHoldsNoSlot(t *testing.T) {
 	r := newRelay(t, relayOptions{jwks: jwks})
 	unknown := signFITKID(t, testKeys().published, "unknown-kid", fitClaims())
 
+	// Waiters report through done, never through t: after a t.Fatal below
+	// they may still be running, and logging then would panic.
+	type result struct {
+		got reply
+		err error
+	}
 	const waiters = server.MaxConcurrent + 10
-	done := make(chan reply, waiters)
+	done := make(chan result, waiters)
 	for range waiters {
 		go func() {
 			got, err := r.send(context.Background(), "POST", "/oidc/token", bearer(unknown), nil)
-			if err != nil {
-				t.Error(err)
-			}
-			done <- got
+			done <- result{got, err}
 		}()
 	}
 	select {
@@ -258,7 +277,12 @@ func TestKeyWaitHoldsNoSlot(t *testing.T) {
 	}
 	once.Do(func() { close(release) })
 	for range waiters {
-		expectRelayError(t, <-done, 401, "invalid_token", false)
+		res := <-done
+		if res.err != nil {
+			t.Error(res.err)
+			continue
+		}
+		expectRelayError(t, res.got, 401, "invalid_token", false)
 	}
 	if n := r.upstreamHits.Load(); n != 1 {
 		t.Errorf("upstream calls = %d, want only the valid one", n)
@@ -318,7 +342,7 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 			t.Errorf("request admitted before expiry: %v", err)
 		}
 	}
-	r.logs.waitRequests(t, server.MaxConcurrent+3) // the held requests have freed their slots
+	r.logs.waitRequests(t, server.MaxConcurrent+3) // every earlier request has finished
 	for _, h := range []http.Header{bearer(fit), nil, bearer("not-a-jws")} {
 		expectRelayError(t, r.do(t, "POST", "/oidc/token", h, nil), 503, "not_ready", false)
 	}
