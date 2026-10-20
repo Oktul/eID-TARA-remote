@@ -1456,6 +1456,53 @@ was ever pushed. `claude/phase-0-results` and
 deleted 2026-10-17), and `main`
 is fast-forwarded to this commit.
 
+**End-to-end security review (2026-10-20, owner's request).** A local
+image of `main` (`0.0.0-dev`, Docker Desktop, the hardened compose
+settings) behind a Cloudflare quick tunnel, called by the Forge app's
+development environment on a test site with TARA demo. Full report, with
+the Forge side, in the Forge app repository's
+`docs/token-relay-security-review.md`. Not a v1 gate: no release build,
+no Caddy front end, no soak, `govulncheck` not run (no network).
+
+- **Passed, black-box:** health exemption exact (`HEAD /livez`,
+  `/readyz?x`, `/livez/` need a FIT); every other target without a FIT is
+  `401 invalid_token`, so no route is disclosed (including `//`, `..`,
+  `%74`, absolute form, `CONNECT`, `TRACE`, `OPTIONS *`); `alg` `none`,
+  HS256, our own key with a real Atlassian `kid`, `jwk`/`jku`/`x5u`
+  headers, tokens over 8 KiB and padded base64url refused; two
+  `Authorization` fields refused; 30 KiB headers `431`; a 70 KiB body
+  refused before it is read; double `Content-Length` `400`; `Content-Length`
+  plus chunked gives one answer; no h2c; an unfinished header closed after
+  5 s; logs hold fixed fields only (no token, path, credential or client
+  IP); the image is `scratch` without a shell; the container runs as
+  65532, read-only, without capabilities.
+- **Passed, end to end:** a demo login through the relay
+  (`upstream_status` 200); a wrong `RELAY_CLOUD_IDS` refused with
+  `cloud_id` before the upstream; a wrong credential forwarded and TARA's
+  `400 unauthorized_client` wrapped; a wrong CA file `502
+  upstream_unreachable` without sending the credential; an unreadable CA
+  file stops startup.
+- **Open findings (low or info):**
+  - R-1: no replay protection; a FIT seen in clear can be reused until
+    `exp + RELAY_CLOCK_SKEW` with any body. Check whether FITs carry `jti`
+    before adding a seen set.
+  - R-2 (reproduced): the slot is taken before the FIT check; 80 parallel
+    unknown-`kid` requests got 30 `503 too_busy` while one JWKS refresh
+    ran (about 60 ms). Needs a §3 order change.
+  - R-3: the Caddyfile's Atlassian-range filter is commented out and
+    there is no rate or connection limit.
+  - R-4: an inline `RELAY_UPSTREAM_AUTH` gets no warning.
+  - R-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin, not only TARA.
+  - R-6 to R-8 (info): `iat` ignored and `exp - nbf` uncapped; no
+    `Content-Type` check on forwarded bodies; no `Cache-Control: no-store`
+    or `nosniff` on relay answers. Errors Go's server answers itself (431,
+    400) are not logged.
+  - Docs: a front end must pass 5xx answers through unchanged (the
+    Cloudflare tunnel replaced the relay's `502` with its own page, so the
+    app saw no `Relay-Protocol`); anything that terminates TLS in front of
+    the relay sees the code, verifier and TARA's token answer (personal
+    data); the host needs NTP (the test VM's clock ran about 1 s ahead).
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
