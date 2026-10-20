@@ -1502,12 +1502,13 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     `Content-Type` check on forwarded bodies; no `Cache-Control: no-store`
     or `nosniff` on relay answers; errors Go's server answers itself (431,
     400) are not logged.
-  - Docs, missing from `docs/SETUP.md` 6.3: a front end must pass 5xx
-    answers through unchanged (the Cloudflare tunnel replaced the relay's
-    `502` with its own page, so the app saw no `Relay-Protocol`), and
-    anything that terminates TLS in front of the relay sees the code,
-    verifier and TARA's token answer (personal data). The host clock (the
-    test VM's ran about 1 s ahead) is already covered by `docs/SETUP.md` 7.
+  - Docs (fixed 2026-10-20, `claude/setup-front-end-docs`): `docs/SETUP.md`
+    6.3 now says a front end must pass the relay's answers through
+    unchanged (the Cloudflare tunnel replaced the relay's `502` with its own
+    page, so the app saw no `Relay-Protocol`), and that whatever terminates
+    TLS in front of the relay sees the code and TARA's token answer
+    (personal data). The host clock (the test VM's ran about 1 s ahead) was
+    already covered by `docs/SETUP.md` 7.
 
 Primary references consulted for the review on 2026-10-15:
 

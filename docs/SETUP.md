@@ -330,6 +330,19 @@ must:
    the FIT). Check error logs as well as access logs, since some proxies add
    the request line or headers to error entries. Disable any log you cannot
    redact.
+8. **Pass the relay's answers through unchanged**, errors included. Turn off
+   custom error pages and response rewriting for the relay: the app tells
+   a relay answer by its `Relay-Protocol` header, so a `502` or `503`
+   replaced by the proxy's own page shows only as a proxy failure, without
+   the relay's error code. Hosted tunnels and CDNs often replace 5xx pages
+   by default.
+
+Whatever terminates TLS in front of the relay sees each request and answer
+in clear: the token request with its one-time code, and TARA's token answer,
+which holds the user's personal data. Run it on infrastructure you control
+under the same rules as the relay, or, if a provider terminates TLS for you
+(a hosted tunnel, a CDN or a cloud load balancer), cover that provider in
+your data processing agreements.
 
 ### 6.4 Caddy (Compose)
 
