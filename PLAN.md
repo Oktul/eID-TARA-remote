@@ -1685,6 +1685,16 @@ measured 55 s `exp - nbf`. The owner then decided the rest on 2026-10-20:
 keep refusing a non-TARA upstream (SR-5), keep the 5-minute cap (SR-6) and
 do not check `Content-Type` (SR-7). A test now pins SR-5's startup line.
 
+**Merge without a further Codex round (owner, 2026-10-20: "merge it
+without another codex round").** Codex reviewed the branch through
+`9f2a0f7`. The three later commits change no relay behaviour: `d22ec8b`
+is this plan only, `02db878` docs and comments in `internal/fit/verify.go`,
+and `480cb74` docs plus a test that pins the SR-5 startup error reviewed
+in `6b8f64c` and `35a85d7`. `AGENTS.md` sends only behaviour changes back
+to round 2, so the owner had `main` fast-forwarded to
+`claude/round3-security-review-hardening` with these commits reviewed by
+Claude alone.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
