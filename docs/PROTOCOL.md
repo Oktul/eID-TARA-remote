@@ -55,13 +55,13 @@ Invocation Token that Atlassian adds when the app calls `invokeRemote`; a
 
 ## 3. Checks, in order
 
-1. Take one of 50 concurrency slots without waiting, or answer
-   `503 too_busy` (R-5).
-2. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
+1. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
    Otherwise verify the FIT (section 5), or answer `401 invalid_token`.
-3. Require exactly `POST /oidc/token`, or answer
+2. Require exactly `POST /oidc/token`, or answer
    `404 route_not_allowed`. The FIT check comes first, so a caller without a
    valid token learns nothing about the token route.
+3. Take one of 50 concurrency slots without waiting, or answer
+   `503 too_busy` (R-5). Only an authenticated token POST takes a slot.
 4. Read the body up to 64 KiB (65536 bytes), or answer
    `413 body_too_large` with `Connection: close`: the relay closes the
    connection rather than read the rest of a refused body to keep it. If the
@@ -116,7 +116,7 @@ stable across versions (F-9):
 | 502    | `upstream_unreachable` | DNS, connection or TLS failure to the upstream, an answer that is not valid HTTP/1.1 (a status line other than HTTP/1.1, HTTP/1.0 included, or a final status below 200), or an answer whose header is over 32 KiB | yes               |
 | 502    | `upstream_too_large`   | Upstream body over the limit                                 | yes               |
 | 503    | `not_ready`            | No usable keys loaded, or their maximum age is reached (K-5) | no                |
-| 503    | `too_busy`             | Concurrency cap reached                                      | no                |
+| 503    | `too_busy`             | Concurrency cap reached                                      | yes               |
 | 504    | `upstream_timeout`     | Upstream timeout reached                                     | yes               |
 
 `/readyz` answers `503 not_ready` when it is not ready (section 2).

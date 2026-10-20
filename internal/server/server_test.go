@@ -72,9 +72,10 @@ func TestCheckOrder(t *testing.T) {
 }
 
 // TestHealthBypassesConcurrencyCap proves PLAN.md §4.2 and §6: with every
-// forwarding slot held by a slow upstream call, health checks still answer
-// locally, without touching the upstream or the JWKS, while every other
-// request gets 503 too_busy before its FIT is judged.
+// forwarding slot held by a slow upstream call, health checks and info still
+// answer locally, without touching the upstream or the JWKS, and a caller
+// without a FIT is refused as on an idle relay. Only a token POST that
+// passed every earlier check gets 503 too_busy (owner, 2026-10-20).
 func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	g := newGate()
 	defer g.release()
@@ -95,9 +96,12 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 	// A health check that needed a slot would wait for the gate and time out.
 	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
 	expectHealthy(t, r.do(t, "GET", "/readyz", nil, nil))
-	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "too_busy", false)
-	expectRelayError(t, r.do(t, "POST", "/oidc/token", nil, nil), 503, "too_busy", false)
-	expectRelayError(t, r.do(t, "GET", "/relay/v1/info", bearer(fit), nil), 503, "too_busy", false)
+	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "too_busy", true)
+	expectRelayError(t, r.do(t, "POST", "/oidc/token", nil, nil), 401, "invalid_token", false)
+	expectRelayError(t, r.do(t, "POST", "/oidc/other", bearer(fit), nil), 404, "route_not_allowed", true)
+	if got := r.do(t, "GET", "/relay/v1/info", bearer(fit), nil); got.status != http.StatusOK {
+		t.Errorf("info on a full relay: status %d, want 200", got.status)
+	}
 	if n := r.upstreamHits.Load(); n != server.MaxConcurrent {
 		t.Errorf("upstream calls = %d, want only the %d held ones", n, server.MaxConcurrent)
 	}
@@ -112,7 +116,7 @@ func TestHealthBypassesConcurrencyCap(t *testing.T) {
 		}
 	}
 	// A slot is freed before its request's log line is written.
-	r.logs.waitRequests(t, server.MaxConcurrent+5)
+	r.logs.waitRequests(t, server.MaxConcurrent+6)
 	if got := r.do(t, "POST", "/oidc/token", bearer(fit), nil); got.status != http.StatusOK {
 		t.Errorf("after release: status %d, want 200", got.status)
 	}
@@ -205,11 +209,67 @@ func TestNotReadyUntilFirstKeySnapshot(t *testing.T) {
 	}
 }
 
-// TestReadinessFollowsKeyAge proves PLAN.md §4.5 and the first two checks
-// of §4.2 together. Once the last good snapshot reaches RELAY_JWKS_MAX_AGE
-// the relay is not ready; a full relay still answers too_busy first, and an
-// empty one answers not_ready before it judges any token. A request
-// admitted earlier still gets its upstream answer.
+// TestKeyWaitHoldsNoSlot proves the SR-2 fix of PLAN.md §16: requests with
+// an unknown kid wait for a JWKS refresh without holding a forwarding slot,
+// so more of them than MaxConcurrent neither answer too_busy nor keep a
+// valid token exchange out (§4.2 step 3, owner 2026-10-20). The refresh is
+// held open until the valid exchange has its answer.
+func TestKeyWaitHoldsNoSlot(t *testing.T) {
+	refreshing := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	var fetches atomic.Int64
+	jwks := func(w http.ResponseWriter, req *http.Request) {
+		if fetches.Add(1) > 1 {
+			select {
+			case refreshing <- struct{}{}:
+			default:
+			}
+			select {
+			case <-release:
+			case <-req.Context().Done():
+			}
+		}
+		serveJWKS(w, req)
+	}
+	r := newRelay(t, relayOptions{jwks: jwks})
+	unknown := signFITKID(t, testKeys().published, "unknown-kid", fitClaims())
+
+	const waiters = server.MaxConcurrent + 10
+	done := make(chan reply, waiters)
+	for range waiters {
+		go func() {
+			got, err := r.send(context.Background(), "POST", "/oidc/token", bearer(unknown), nil)
+			if err != nil {
+				t.Error(err)
+			}
+			done <- got
+		}()
+	}
+	select {
+	case <-refreshing:
+	case <-time.After(waitTimeout):
+		t.Fatal("timed out waiting for the unknown-kid refresh")
+	}
+
+	if got := r.do(t, "POST", "/oidc/token", bearer(validFIT(t)), nil); got.status != http.StatusOK {
+		t.Errorf("valid exchange during the key wait: status %d, want 200", got.status)
+	}
+	once.Do(func() { close(release) })
+	for range waiters {
+		expectRelayError(t, <-done, 401, "invalid_token", false)
+	}
+	if n := r.upstreamHits.Load(); n != 1 {
+		t.Errorf("upstream calls = %d, want only the valid one", n)
+	}
+}
+
+// TestReadinessFollowsKeyAge proves PLAN.md §4.5 and the first check of
+// §4.2. Once the last good snapshot reaches RELAY_JWKS_MAX_AGE the relay is
+// not ready and answers not_ready before it judges any token, whether or not
+// every slot is taken. A request admitted earlier still gets its upstream
+// answer.
 //
 // The snapshot age is measured on the real clock and the fetches cross real
 // sockets, so a testing/synctest bubble cannot fake it: this test waits
@@ -248,7 +308,7 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 	failing.Store(true)
 	waitUntil(t, "the key snapshot to expire", func() bool { return !r.keys.Ready() })
 
-	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "too_busy", false)
+	expectRelayError(t, r.do(t, "POST", "/oidc/token", bearer(fit), nil), 503, "not_ready", false)
 	expectRelayError(t, r.do(t, "GET", "/readyz", nil, nil), 503, "not_ready", false)
 	expectHealthy(t, r.do(t, "GET", "/livez", nil, nil))
 
@@ -267,7 +327,7 @@ func TestReadinessFollowsKeyAge(t *testing.T) {
 	}
 }
 
-// TestRequestTargetsRefusedAfterFIT proves PLAN.md §4.2 step 3 and §5: the
+// TestRequestTargetsRefusedAfterFIT proves PLAN.md §4.2 step 2 and §5: the
 // relay compares the raw request target byte for byte, so queries,
 // absolute-form and asterisk targets, percent-encoding, dot segments and
 // method variants never match a route, even with a valid FIT. Raw TCP keeps
@@ -477,7 +537,7 @@ func TestOversizedBodyAnswerSurvivesPipelinedRequest(t *testing.T) {
 	}
 }
 
-// TestKeyLookupNotReadyAnswersNotReady proves PLAN.md §4.2 step 2 for a key
+// TestKeyLookupNotReadyAnswersNotReady proves PLAN.md §4.2 step 1 for a key
 // snapshot that expires between the readiness check and the key lookup: the
 // token was never judged, so the answer is 503 not_ready, not 401. The
 // Verifier's key source reports fit.ErrNotReady while the cache the server

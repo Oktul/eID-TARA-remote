@@ -49,7 +49,7 @@ func reject(r Reason) error { return &Error{Reason: r} }
 // ErrNotReady reports that no signing-key snapshot is usable: none has been
 // loaded yet, or the last good one reached RELAY_JWKS_MAX_AGE. Callers answer
 // 503 not_ready rather than 401, because the token was never judged
-// (PLAN.md §4.2 step 2, §4.5).
+// (PLAN.md §4.2 step 1, §4.5).
 var ErrNotReady = errors.New("fit: no usable signing-key snapshot")
 
 // errKeyUnknown is returned by the key cache when a kid is still unknown

@@ -79,14 +79,15 @@ func allScenarios() []scenario {
 		},
 		{
 			name: "invalid", unit: "requests", timing: "latency", run: invalidSignatures,
-			// The concurrency slot is taken before the FIT check (PLAN.md
-			// §4.2), so a flood may also see too_busy.
-			ok:       oneOf(outcomeInvalid, outcomeTooBusy),
+			// Only an authenticated token POST takes a concurrency slot
+			// (PLAN.md §4.2), so a flood without valid FITs never sees
+			// too_busy.
+			ok:       oneOf(outcomeInvalid),
 			required: outcomeInvalid,
 		},
 		{
 			name: "unknown-kid", unit: "requests", timing: "latency", run: unknownKeys,
-			ok:       oneOf(outcomeInvalid, outcomeTooBusy),
+			ok:       oneOf(outcomeInvalid),
 			required: outcomeInvalid, jwksLimit: true,
 		},
 		{

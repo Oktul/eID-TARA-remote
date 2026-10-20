@@ -82,7 +82,7 @@ func TestContractRelayErrors(t *testing.T) {
 			r := newRelay(t, relayOptions{jwks: jwksUnavailable, notReady: true})
 			return r.do(t, "GET", "/readyz", nil, nil)
 		}},
-		{"too_busy", 503, "too_busy", false, func(t *testing.T) reply {
+		{"too_busy", 503, "too_busy", true, func(t *testing.T) reply {
 			g := newGate()
 			defer g.release()
 			r := newRelay(t, relayOptions{upstream: g.handler})

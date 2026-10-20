@@ -115,8 +115,9 @@ type Server struct {
 	version  string
 	info     []byte // the /relay/v1/info body, fixed at startup
 
-	// slots is the forwarding semaphore (PLAN.md §6 R-5). Health checks
-	// bypass it, so a full relay still answers its probes.
+	// slots is the forwarding semaphore (PLAN.md §6 R-5). Only an
+	// authenticated token POST takes a slot, so a full relay still answers
+	// its probes, info and every refusal.
 	slots chan struct{}
 
 	// stopping turns /readyz false once shutdown begins (R-11).
@@ -205,16 +206,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 		return
 	}
 
-	// Step 1: a concurrency slot without waiting (R-5).
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	default:
-		s.writeError(w, rec, http.StatusServiceUnavailable, codeTooBusy)
-		return
-	}
-
-	// Step 2: usable keys, then the FIT. Shutdown does not stop in-flight or
+	// Step 1: usable keys, then the FIT. Shutdown does not stop in-flight or
 	// keep-alive requests from being served; only /readyz reflects it.
 	if !s.keys.Ready() {
 		s.writeError(w, rec, http.StatusServiceUnavailable, codeNotReady)
@@ -239,7 +231,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 	rec.authenticated = true
 	rec.cloudID = claims.CloudID
 
-	// Step 3: the route. Only after authentication, so a caller without a
+	// Step 2: the route. Only after authentication, so a caller without a
 	// valid FIT learns nothing about the routes (F-2).
 	if r.Method == http.MethodGet && r.RequestURI == pathInfo {
 		rec.route = routeInfo
@@ -253,6 +245,17 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request, rec *record) {
 		return
 	}
 	rec.route = forward.TokenRoute
+
+	// Step 3: a concurrency slot without waiting (R-5). Only now, so a
+	// caller without a valid FIT, or one waiting for a key refresh, never
+	// holds a slot a token exchange needs (PLAN.md §4.2, owner 2026-10-20).
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	default:
+		s.writeError(w, rec, http.StatusServiceUnavailable, codeTooBusy)
+		return
+	}
 
 	// Step 4: the body, bounded (R-4).
 	body, err := readBody(w, r)

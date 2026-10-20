@@ -15,8 +15,8 @@ docs-only commits without review: this status, the TARA wording of
 line with the code. All other branches were deleted the same day. Not
 tagged, pushed or published; no workflow has run, since the repository has
 no remote yet. An end-to-end security review on
-2026-10-20 refused everything it should; its low and info findings
-SR-1 to SR-9 await the owner (§16). Still open: the PINNED gate, source CI
+2026-10-20 refused everything it should. SR-2 and the docs finding are
+fixed on review branches; SR-1 and SR-3 to SR-9 await the owner (§16). Still open: the PINNED gate, source CI
 on GitHub and the Phase 2 release verifications.
 Adding `remotes` to the Forge app's main line still needs the owner's
 approval (Oktul eID SSO, `PLAN.md` §4.7)._
@@ -119,12 +119,15 @@ All other requests follow the checks below; after authentication,
 clean paths, redirect them or implicitly accept `HEAD` for `GET` before
 these checks.
 
-1. Take a concurrency slot without waiting, or answer `503 too_busy` (R-5).
-2. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
+1. If no usable, unexpired key snapshot is available, answer `503 not_ready`.
    Otherwise verify the FIT (§4.4), or answer `401 invalid_token`.
-3. Require exactly `POST /oidc/token`, or answer
+2. Require exactly `POST /oidc/token`, or answer
    `404 route_not_allowed`. The FIT check comes first, so a caller without a
    valid token learns nothing about the token route.
+3. Take a concurrency slot without waiting, or answer `503 too_busy` (R-5).
+   Only an authenticated token POST takes one, so callers without a valid
+   FIT, including those waiting for an unknown key, cannot crowd out token
+   exchanges (owner, 2026-10-20, SR-2 in §16; it was the first check).
 4. Read the body up to the limit, or answer `413 body_too_large`.
 5. Forward (§5).
 
@@ -448,8 +451,8 @@ The proxy closes its idle connections to the relay before the relay's 60 s
 never written onto a connection the relay is closing (R-1, R-8; 2026-10-15).
 The relay port is reachable only by that proxy and local/cluster health
 probes, never directly from the public network. Health probes bypass the
-forwarding semaphore, so a full relay answers `503 too_busy` without causing
-a liveness restart. The relay serves plain HTTP only; TLS is the proxy's
+forwarding semaphore, so a full relay answers `503 too_busy` to token calls
+without causing a liveness restart. The relay serves plain HTTP only; TLS is the proxy's
 job (D6). Built-in TLS (`RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE`, S-10)
 was removed before the first release (owner, 2026-10-16): it served only a
 relay exposed without a proxy, which this section does not support, and a
@@ -1489,10 +1492,17 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
   - SR-1: no replay protection; a FIT seen in clear can be reused until
     `exp + RELAY_CLOCK_SKEW` with any body. Check whether FITs carry `jti`
     before adding a seen set.
-  - SR-2 (reproduced): the slot is taken before the FIT check; 80 parallel
-    unknown-`kid` requests got 30 `503 too_busy` while one JWKS refresh
-    ran (about 60 ms). The unknown-key cooldown (§4.5) limits this to one
-    refresh a minute. Fixing it changes the order in §4.2, under §4.6.
+  - SR-2 (reproduced; fixed 2026-10-20, `claude/fit-before-slot`): the
+    slot was taken before the FIT check; 80 parallel unknown-`kid` requests
+    got 30 `503 too_busy` while one JWKS refresh ran (about 60 ms). The
+    owner decided on 2026-10-20 to take the slot after the FIT and route
+    checks (§4.2 step 3). Under §4.6 this keeps protocol v1: every code and
+    its meaning stay, a caller with a valid FIT sees `too_busy` only on a
+    token POST, and `too_busy` now carries `Relay-Version` like every
+    authenticated answer. No relay has been released, so none in the field
+    behaves otherwise. `TestKeyWaitHoldsNoSlot` fails on the old order; the
+    load test's `invalid` and `unknown-kid` scenarios now fail on any
+    `too_busy`.
   - SR-3: the Caddyfile's Atlassian-range filter is commented out, and it
     bounds only the connections to the relay, not client connections or
     their rate (`docs/SETUP.md` 6.3 asks for both).

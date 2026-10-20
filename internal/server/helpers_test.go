@@ -125,11 +125,17 @@ func fitClaims() map[string]any {
 // key.
 func signFIT(t testing.TB, key *rsa.PrivateKey, claims map[string]any) string {
 	t.Helper()
+	return signFITKID(t, key, testKID, claims)
+}
+
+// signFITKID is signFIT under the key ID kid.
+func signFITKID(t testing.TB, key *rsa.PrivateKey, kid string, claims map[string]any) string {
+	t.Helper()
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := b64([]byte(`{"alg":"RS256","kid":"`+testKID+`","typ":"JWT"}`)) + "." + b64(payload)
+	input := b64([]byte(`{"alg":"RS256","kid":"`+kid+`","typ":"JWT"}`)) + "." + b64(payload)
 	digest := sha256.Sum256([]byte(input))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
@@ -356,7 +362,7 @@ type keySource interface {
 
 // expiredKeys answers every lookup as the cache does once its snapshot has
 // expired, which can happen between the server's readiness check and the
-// Verifier's key lookup (PLAN.md §4.2 step 2).
+// Verifier's key lookup (PLAN.md §4.2 step 1).
 type expiredKeys struct{}
 
 func (expiredKeys) Key(context.Context, string) (*rsa.PublicKey, error) { return nil, fit.ErrNotReady }

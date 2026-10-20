@@ -445,6 +445,8 @@ func TestVerdictChecks(t *testing.T) {
 		{"failed_health_probe_fails", "full", func(r *result) { r.probe.failures["/livez timeout"] = 1 }, true},
 		{"invalid_reaching_upstream_fails", "invalid", func(r *result) { r.upstreamCalls = 1 }, true},
 		{"invalid_forwarded_fails", "invalid", func(r *result) { r.outcomes[outcomeForwarded] = 1 }, true},
+		{"invalid_too_busy_fails", "invalid", func(r *result) { r.outcomes[outcomeTooBusy] = 1 }, true},
+		{"unknown_kid_too_busy_fails", "unknown-kid", func(r *result) { r.outcomes[outcomeTooBusy] = 1 }, true},
 		{"unknown_kid_reaching_upstream_fails", "unknown-kid", func(r *result) { r.upstreamCalls = 1 }, true},
 		{"unknown_kid_one_fetch_per_interval_passes", "unknown-kid", func(r *result) { r.jwksFetches = 1 }, false},
 		{"unknown_kid_fetches_over_limit_fail", "unknown-kid", func(r *result) { r.jwksFetches = 2 }, true},
