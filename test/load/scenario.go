@@ -241,6 +241,11 @@ func verdict(s scenario, r result) []string {
 	if !s.upstream && r.upstreamCalls > 0 {
 		f = append(f, fmt.Sprintf("%d requests reached the upstream", r.upstreamCalls))
 	}
+	// All requests have finished: an extra upstream call means a request
+	// answered locally still reached the provider (PLAN.md §4.2, §13).
+	if s.upstream && r.upstreamCalls > r.outcomes[outcomeForwarded] {
+		f = append(f, fmt.Sprintf("%d upstream calls for %d forwarded answers", r.upstreamCalls, r.outcomes[outcomeForwarded]))
+	}
 	if limit := int64(r.elapsed/relayUnknownRefresh) + 1; s.jwksLimit && r.jwksFetches > limit {
 		f = append(f, fmt.Sprintf("%d JWKS fetches, more than %d", r.jwksFetches, limit))
 	}

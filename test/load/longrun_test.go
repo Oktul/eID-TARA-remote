@@ -315,6 +315,7 @@ func TestSoakMixesInvalidRequestsAndReportsWindows(t *testing.T) {
 				tl := newTally()
 				soak(ctx, t.Context(), e, tl)
 				r := tl.result()
+				r.upstreamCalls = f.upstreamCalls.Load()
 				want := map[string]int64{outcomeForwarded: r.outcomes[outcomeForwarded], outcomeInvalid: r.outcomes[outcomeInvalid]}
 				if !maps.Equal(r.outcomes, want) || r.outcomes[outcomeInvalid] == 0 || r.outcomes[outcomeForwarded] < 8*r.outcomes[outcomeInvalid] {
 					t.Errorf("outcomes = %v, want forwarded and one in ten invalid", r.outcomes)
@@ -325,8 +326,65 @@ func TestSoakMixesInvalidRequestsAndReportsWindows(t *testing.T) {
 				if !strings.Contains(progress.String(), "requests") || !strings.Contains(progress.String(), "jwks fetches") {
 					t.Errorf("no progress line in %q", progress.String())
 				}
-				if (len(r.checks) > 0) != tc.wantCheck {
-					t.Errorf("checks = %q, want failing %v", r.checks, tc.wantCheck)
+				if failures := verdict(scenarioNamed(t, "soak"), r); (len(failures) > 0) != tc.wantCheck {
+					t.Errorf("failures = %q, want failing %v", failures, tc.wantCheck)
+				}
+			})
+		})
+	}
+}
+
+func TestOutageRejectsUpstreamCallsHiddenByNotReady(t *testing.T) {
+	k := key(t)
+	for _, leak := range []bool{false, true} {
+		t.Run(map[bool]string{false: "refusals_stay_local", true: "refusals_reach_upstream"}[leak], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := &fixture{requestBody: []byte("request"), responseBody: []byte("response")}
+				e := &env{
+					relay: target{base: "http://relay.test"}, probeBase: "http://relay.test",
+					fits: newMinter(k, time.Now), fixture: f, workers: 1, rate: 1,
+					jwksRefresh: 30 * time.Second, jwksMaxAge: 2 * time.Minute,
+				}
+				start := time.Now()
+				c := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					at := time.Since(start)
+					ready := at < e.jwksMaxAge || (!f.jwksDown.Load() && at >= e.jwksMaxAge+outageOverrun+20*time.Second)
+					resp := &http.Response{StatusCode: 200, Header: http.Header{"Relay-Protocol": {"1"}, "Content-Type": {"application/json"}}, Request: req}
+					body := []byte(`{"status":"ok"}`)
+					switch req.URL.Path {
+					case "/livez":
+					case "/readyz":
+					case "/oidc/token":
+						if ready || leak {
+							f.upstreamCalls.Add(1)
+						}
+						if ready {
+							resp.Header.Set("Relay-Upstream-Status", "200")
+							body = f.responseBody
+						}
+					default:
+						t.Errorf("unexpected path %q", req.URL.Path)
+					}
+					if req.URL.Path != "/livez" && !ready {
+						resp.StatusCode = 503
+						resp.Header.Set("Relay-Error", "not_ready")
+						body = []byte(`{"error":"not_ready"}`)
+					}
+					resp.Body = io.NopCloser(bytes.NewReader(body))
+					return resp, nil
+				})}
+				e.pacedClient, e.probe = c, c
+				s := scenarioNamed(t, "jwks-outage")
+				r := runScenario(t.Context(), e, s, outageLength(e))
+				if leak {
+					if len(r.failures) != 1 || !strings.Contains(r.failures[0], "upstream calls") {
+						t.Errorf("failures = %q, want hidden upstream calls", r.failures)
+					}
+				} else if len(r.failures) != 0 {
+					t.Errorf("failures = %q, want none", r.failures)
+				}
+				if f.jwksDown.Load() || r.outcomes[outcomeNotReady] == 0 || r.probe.failures[readyzExpired] == 0 {
+					t.Errorf("outage did not expire and restore keys: outcomes %v, probes %v", r.outcomes, r.probe.failures)
 				}
 			})
 		})

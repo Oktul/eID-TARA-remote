@@ -437,7 +437,8 @@ func TestVerdictChecks(t *testing.T) {
 	}{
 		{"full_with_forwarded_and_too_busy_passes", "full", func(*result) {}, false},
 		{"full_without_overload_fails", "full", func(r *result) { delete(r.outcomes, outcomeTooBusy) }, true},
-		{"full_upstream_calls_allowed", "full", func(r *result) { r.upstreamCalls = 10 }, false},
+		{"full_forwarded_upstream_calls_allowed", "full", func(r *result) { r.upstreamCalls = 5 }, false},
+		{"full_extra_upstream_calls_fail", "full", func(r *result) { r.upstreamCalls = 10 }, true},
 		{"unexpected_outcome_fails", "full", func(r *result) { r.outcomes["401 invalid_token"] = 1 }, true},
 		{"missing_required_outcome_fails", "full", func(r *result) { delete(r.outcomes, outcomeForwarded) }, true},
 		{"transport_error_fails", "full", func(r *result) { r.errors["connection"] = 1 }, true},

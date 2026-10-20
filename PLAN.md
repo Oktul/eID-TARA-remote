@@ -1733,6 +1733,17 @@ waits inside the fake clock, including the held request in the backlog
 test.
 All five required checks pass again; both converted timing tests also pass
 100 repetitions under the race detector.
+Moved the soak's upstream-call accounting into the shared verdict, so the
+JWKS outage checks it too (§4.2, §13). Previously an expired-key request
+could reach the upstream and then be answered `not_ready` without failing
+the outage. A fake-clock run of the complete five-minute outage proves
+expiry, readiness, restoration and recovery, and fails when such hidden
+upstream calls are introduced.
+All five required checks pass again with no vulnerabilities found; the
+complete outage regression also passes 20 race-enabled repetitions. No
+open findings or disagreements remain in this review. Claude's round 3 is
+still required; no merge, push or tag was performed. The VM acceptance
+runs, including the 72-hour soak, remain open.
 
 Primary references consulted for the review on 2026-10-15:
 

@@ -97,7 +97,6 @@ func paced(ctx, abort context.Context, e *env, t *tally,
 // errors, JWKS refreshes) shows in the log. Memory, connections and CPU are
 // measured with the container tools (PLAN.md §13).
 func soak(ctx, abort context.Context, e *env, t *tally) {
-	upstream0 := e.fixture.upstreamCalls.Load()
 	start := time.Now()
 	t.openWindow()
 	// The reporter exits when done closes, after the last request.
@@ -127,14 +126,6 @@ func soak(ctx, abort context.Context, e *env, t *tally) {
 	}, nil)
 	close(done)
 	wg.Wait()
-
-	// Every request has completed, so each upstream call belongs to one
-	// forwarded answer; more calls mean a rejected request got through
-	// (PLAN.md §4.2).
-	r := t.result()
-	if calls := e.fixture.upstreamCalls.Load() - upstream0; calls > r.outcomes[outcomeForwarded] {
-		t.check(fmt.Sprintf("%d upstream calls for %d forwarded answers", calls, r.outcomes[outcomeForwarded]))
-	}
 }
 
 // printWindow prints one soak progress line.
