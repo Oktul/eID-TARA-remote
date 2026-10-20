@@ -606,6 +606,7 @@ func expectErrorHeaders(t testing.TB, got reply, status int, code string, versio
 	}
 	expectProtocol(t, got)
 	expectVersion(t, got, versioned)
+	expectNoStore(t, got)
 }
 
 // expectRelayError also checks the exact body.
@@ -618,6 +619,18 @@ func expectRelayError(t testing.TB, got reply, status int, code string, versione
 	}
 	if v := got.header.Get("Content-Length"); v != strconv.Itoa(len(want)) {
 		t.Errorf("Content-Length = %q, want %d", v, len(want))
+	}
+}
+
+// expectNoStore checks the caching and sniffing headers every relay answer
+// carries (PLAN.md §4.3, SR-8).
+func expectNoStore(t testing.TB, got reply) {
+	t.Helper()
+	if v := got.header.Values("Cache-Control"); len(v) != 1 || v[0] != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", v)
+	}
+	if v := got.header.Values("X-Content-Type-Options"); len(v) != 1 || v[0] != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", v)
 	}
 }
 
@@ -655,4 +668,5 @@ func expectHealthy(t testing.TB, got reply) {
 	}
 	expectProtocol(t, got)
 	expectVersion(t, got, false)
+	expectNoStore(t, got)
 }

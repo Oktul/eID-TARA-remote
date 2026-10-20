@@ -159,6 +159,7 @@ func TestContractInfo(t *testing.T) {
 			}
 			expectProtocol(t, got)
 			expectVersion(t, got, true)
+			expectNoStore(t, got)
 			if n := r.upstreamHits.Load(); n != 0 {
 				t.Errorf("info made %d upstream calls", n)
 			}
@@ -177,8 +178,9 @@ func TestContractUpstreamAnswerWrapped(t *testing.T) {
 			r := newRelay(t, relayOptions{upstream: func(w http.ResponseWriter, req *http.Request) {
 				h := w.Header()
 				h.Set("Content-Type", "application/json;charset=UTF-8")
-				h.Set("Cache-Control", "no-store")
+				h.Set("Cache-Control", "no-store, max-age=0")
 				h.Set("Pragma", "no-cache")
+				h.Set("X-Content-Type-Options", "synthetic")
 				h.Set("Set-Cookie", "session=synthetic")
 				h.Set("Location", "https://elsewhere.example/")
 				h.Set("WWW-Authenticate", `Basic realm="synthetic"`)
@@ -203,16 +205,17 @@ func TestContractUpstreamAnswerWrapped(t *testing.T) {
 			expectProtocol(t, got)
 			expectVersion(t, got, true)
 			for name, want := range map[string]string{
-				"Content-Type":  "application/json;charset=UTF-8",
-				"Cache-Control": "no-store",
-				"Pragma":        "no-cache",
+				"Content-Type":           "application/json;charset=UTF-8",
+				"Cache-Control":          "no-store, max-age=0", // the upstream's own value passes
+				"Pragma":                 "no-cache",
+				"X-Content-Type-Options": "nosniff",
 			} {
 				if v := got.header.Values(name); len(v) != 1 || v[0] != want {
 					t.Errorf("%s = %q, want %q", name, v, want)
 				}
 			}
 			wantNames := []string{"Cache-Control", "Content-Length", "Content-Type", "Date", "Pragma",
-				"Relay-Protocol", "Relay-Upstream-Status", "Relay-Version"}
+				"Relay-Protocol", "Relay-Upstream-Status", "Relay-Version", "X-Content-Type-Options"}
 			if names := headerNames(got.header); !slices.Equal(names, wantNames) {
 				t.Errorf("header names = %q, want %q", names, wantNames)
 			}
@@ -222,7 +225,8 @@ func TestContractUpstreamAnswerWrapped(t *testing.T) {
 
 // TestContractUpstreamWithoutContentType checks that the relay adds no
 // Content-Type the upstream did not send: net/http would otherwise sniff
-// one from the body.
+// one from the body. Without an upstream Cache-Control, the relay adds
+// no-store, and nosniff stops a client from sniffing instead (SR-8).
 func TestContractUpstreamWithoutContentType(t *testing.T) {
 	const body = "<html><body>synthetic</body></html>"
 	r := newRelay(t, relayOptions{upstream: func(w http.ResponseWriter, _ *http.Request) {
@@ -236,6 +240,7 @@ func TestContractUpstreamWithoutContentType(t *testing.T) {
 	if v, ok := got.header["Content-Type"]; ok {
 		t.Errorf("Content-Type = %q, but the upstream sent none", v)
 	}
+	expectNoStore(t, got)
 }
 
 // TestContractTransportLevelRejections shows the requests net/http refuses

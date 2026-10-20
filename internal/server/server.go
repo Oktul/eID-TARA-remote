@@ -336,6 +336,13 @@ func (s *Server) writeUpstream(w http.ResponseWriter, resp *forward.Response) {
 		// Content-Type the upstream never sent.
 		h["Content-Type"] = nil
 	}
+	// A token answer must never be stored (RFC 6749 §5.1); TARA says so
+	// itself, and the relay adds it only when the upstream did not
+	// (PLAN.md §4.3, SR-8).
+	if _, ok := resp.Header["Cache-Control"]; !ok {
+		h.Set("Cache-Control", "no-store")
+	}
+	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
 	h.Set(headerVersion, s.version)
 	h.Set(headerUpstreamStatus, strconv.Itoa(resp.Status))
@@ -361,11 +368,14 @@ func (s *Server) writeError(w http.ResponseWriter, rec *record, status int, code
 }
 
 // writeJSON sends a relay-generated body with the protocol header that every
-// application response carries (F-8).
+// application response carries (F-8). Its answers are never worth storing
+// or sniffing (PLAN.md §4.3, SR-8).
 func writeJSON(w http.ResponseWriter, status int, body []byte) {
 	h := w.Header()
 	h.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
 	h.Set("Content-Type", "application/json")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	// A write error means the caller has gone; there is no one to tell.

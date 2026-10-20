@@ -153,6 +153,13 @@ these checks.
   (2026-10-15). `Relay-Version`
   (the release, for example `1.2.0`) is sent only on FIT-authenticated
   responses, so an anonymous scanner cannot read the version.
+- **Caching and sniffing (owner's review, 2026-10-20, SR-8).** Every
+  application-generated response carries `X-Content-Type-Options: nosniff`.
+  Relay errors, health and info answers carry `Cache-Control: no-store`; a wrapped upstream answer
+  keeps the upstream's `Cache-Control` and gets `no-store` only when the
+  upstream sent none, since a token answer must never be stored (RFC 6749
+  §5.1). Both are additions under §4.6: no client reads them, and the Forge
+  app ignores them.
 
 ### 4.4 FIT verification
 
@@ -371,7 +378,8 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   is capped at `UpstreamMaxHeaderBytes = 32 KiB` before that limit applies
   (2026-10-15). Only `Content-Type`, `Cache-Control` and `Pragma` pass
   (owner, 2026-10-17, D11). Headers nominated by `Connection` are dropped
-  even when in this fixed list. The relay computes framing and sets
+  even when in this fixed list. The relay adds `nosniff` and, without an
+  upstream `Cache-Control`, `no-store` (§4.3, SR-8). The relay computes framing and sets
   its own protocol, version, upstream-status and error headers last. Upstream
   headers can never impersonate a relay error or change its protocol metadata.
 - **Upstream client:**
@@ -1113,8 +1121,8 @@ promotes unreleased work from `main` into a patch release.
    - SR-6 (info): `iat` ignored, `exp - nbf` uncapped, and no pin on the
      remote key, so a second remote of the same app would be accepted.
    - SR-7 (info): no `Content-Type` check on forwarded bodies.
-   - SR-8 (info): no `Cache-Control: no-store` or `nosniff` on relay
-     answers.
+   - SR-8 (info, fixed 2026-10-20): relay answers now carry
+     `Cache-Control: no-store` and `nosniff` (§4.3).
    - SR-9 (info): errors Go's server answers itself (431, 400) leave no
      log line.
 

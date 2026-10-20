@@ -87,6 +87,8 @@ with:
 - `Relay-Upstream-Status: <code>`, the upstream's status;
 - the upstream body unchanged;
 - only the upstream headers `Content-Type`, `Cache-Control`, `Pragma`;
+- `Cache-Control: no-store` when the upstream sent no `Cache-Control`, and
+  `X-Content-Type-Options: nosniff`;
 - `Relay-Protocol: 1` and `Relay-Version`.
 
 The wrapping lets the Forge app distinguish a provider's `401 invalid_client`
@@ -104,7 +106,8 @@ one as a relay answer.
 ### 4.2 Relay answers
 
 The relay's own status, `Relay-Error: <code>`, and a body that is exactly
-`{"error":"<code>"}`, with `Content-Type: application/json`. Codes are
+`{"error":"<code>"}`, with `Content-Type: application/json`,
+`Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Codes are
 stable across versions (F-9):
 
 | Status | Code                   | When                                                         | `Relay-Version`   |
@@ -139,6 +142,8 @@ response was lost, and nothing retries it automatically (section 6.6).
 | `Relay-Version`         | Only FIT-authenticated responses, so an anonymous scanner cannot read the version        | The release, e.g. `1.2.0` |
 | `Relay-Upstream-Status` | Upstream answers (section 4.1)                                                           | The upstream status code  |
 | `Relay-Error`           | Relay answers (section 4.2)                                                              | A code from section 4.2   |
+| `Cache-Control`         | Relay answers, health and info; upstream answers without their own (section 4.1)        | `no-store`                |
+| `X-Content-Type-Options` | Every application-generated response                                                    | `nosniff`                 |
 
 The relay computes framing and sets its own protocol, version,
 upstream-status and error headers last. Upstream headers can never
@@ -154,6 +159,7 @@ A provider error, wrapped (D7):
 HTTP/1.1 200 OK
 Content-Type: application/json
 Cache-Control: no-store
+X-Content-Type-Options: nosniff
 Relay-Protocol: 1
 Relay-Version: 1.2.0
 Relay-Upstream-Status: 400
@@ -166,6 +172,8 @@ A relay error, to a `POST /oidc/token` that carried a body:
 ```http
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json
+Cache-Control: no-store
+X-Content-Type-Options: nosniff
 Connection: close
 Relay-Protocol: 1
 Relay-Error: invalid_token
@@ -348,6 +356,8 @@ body-credential feature. See [TARA's token request specification](https://e-gov.
   may have at most 32 KiB; a larger one answers `502 upstream_unreachable`.
 - Only `Content-Type`, `Cache-Control` and `Pragma` pass back. Headers
   nominated by the upstream's `Connection` header are also removed at runtime.
+  The relay adds `X-Content-Type-Options: nosniff`, and `Cache-Control:
+  no-store` when the upstream sent none (section 4.1).
 
 ### 6.5 Upstream client
 
