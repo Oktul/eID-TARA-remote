@@ -263,6 +263,8 @@ func TestContractTransportLevelRejections(t *testing.T) {
 		{"header_over_limit", "GET /livez HTTP/1.1\r\nHost: relay.example\r\nX-Pad: " + secretMarker +
 			strings.Repeat("a", 32<<10) + "\r\n\r\n", http.StatusRequestHeaderFieldsTooLarge},
 		{"malformed_request_line", "NOT-HTTP " + secretMarker + "\r\n\r\n", http.StatusBadRequest},
+		{"unsupported_transfer_encoding", "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nTransfer-Encoding: " + secretMarker + "\r\n\r\n", http.StatusNotImplemented},
+		{"unexpected_expectation", "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nExpect: " + secretMarker + "\r\n\r\n", http.StatusExpectationFailed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -290,7 +292,7 @@ func TestContractTransportLevelRejections(t *testing.T) {
 		}
 	}
 	slices.Sort(statuses)
-	if want := []string{"400", "431"}; !slices.Equal(statuses, want) {
+	if want := []string{"400", "417", "431", "501"}; !slices.Equal(statuses, want) {
 		t.Errorf("logged statuses = %v, want %v", statuses, want)
 	}
 	if strings.Contains(r.logs.String(), secretMarker) {
@@ -341,6 +343,56 @@ func TestTransportRejectionAfterHandledRequest(t *testing.T) {
 	}
 	if len(lines) != 2 {
 		t.Errorf("%d request lines, want 2", len(lines))
+	}
+}
+
+// TestPipelinedTransportRejection covers parse failures already buffered
+// behind a handled request. net/http can skip StateActive for those failures,
+// but each answer must still leave its own request line (PLAN.md §10, SR-9).
+func TestPipelinedTransportRejection(t *testing.T) {
+	for _, tc := range []struct {
+		name, second string
+		status       int
+	}{
+		{"malformed_request_line", "NOT-HTTP " + secretMarker + "\r\n\r\n", 400},
+		{"unsupported_transfer_encoding", "POST /oidc/token HTTP/1.1\r\nHost: relay.example\r\nTransfer-Encoding: " + secretMarker + "\r\n\r\n", 501},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRelay(t, relayOptions{run: true})
+			conn, err := net.Dial("tcp", r.addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }() // the relay closes it first
+			if err := conn.SetDeadline(time.Now().Add(waitTimeout)); err != nil {
+				t.Fatal(err)
+			}
+			const first = "GET /livez HTTP/1.1\r\nHost: relay.example\r\n\r\n"
+			if _, err := io.WriteString(conn, first+tc.second); err != nil {
+				t.Fatal(err)
+			}
+			br := bufio.NewReader(conn)
+			for _, want := range []int{200, tc.status} {
+				resp, err := http.ReadResponse(br, &http.Request{Method: "GET"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = io.Copy(io.Discard, resp.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if resp.StatusCode != want {
+					t.Errorf("status = %d, want %d", resp.StatusCode, want)
+				}
+			}
+			lines := r.logs.waitRequests(t, 2)
+			if len(lines) != 2 || field(lines[1], "error") != "http_server" || field(lines[1], "status") != strconv.Itoa(tc.status) {
+				t.Errorf("request lines = %v, want health followed by http_server %d", lines, tc.status)
+			}
+			if strings.Contains(r.logs.String(), secretMarker) {
+				t.Error("a rejected request's content reached the log")
+			}
+		})
 	}
 }
 

@@ -1611,6 +1611,28 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     2026-10-20; SR-1 waits for evidence on `jti` and FIT reuse, and SR-7 was
     not built. Details and what the review did not cover: §14, Phase 4.
 
+**Codex review, round 2, security hardening (2026-10-20).** Reviewed
+`main...claude/security-review-hardening` through `1d8f418` against this
+plan and the contributing checklist. Fixes live on
+`codex/review-security-review-hardening`; Claude's commits are unchanged.
+
+- Fixed SR-9 tracking on reused connections: a malformed request or an
+  unsupported transfer coding already buffered behind a handled request
+  can fail parsing without net/http emitting `StateActive`. The previous
+  request's handled flag then hid the rejection. Resetting at `StateIdle`
+  too preserves one fixed-field request line for each refusal (§10).
+  Both pipelined regression cases fail without the fix. Additional
+  fixtures cover the documented 417 and 501 refusals and log redaction.
+- `gofmt -w .`, `go vet ./...`, `staticcheck ./...`,
+  `go test -race ./...` and `govulncheck ./...` pass in order; no
+  vulnerabilities found. Race tests run in the pinned Go 1.27.2 Linux
+  builder with networking disabled.
+
+SR-1 still needs the FIT-reuse evidence and SR-7 the owner's decision
+recorded in §14; neither is silently closed by this review. No
+disagreements. Claude's round 3 remains required before merging; no merge,
+push or tag was performed.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)

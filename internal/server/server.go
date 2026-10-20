@@ -566,7 +566,7 @@ func (l trackedListener) Accept() (net.Conn, error) {
 // connections closed from another, so the fields are atomic.
 type trackedConn struct {
 	net.Conn
-	started atomic.Int64 // UnixNano when the current request's bytes arrived
+	started atomic.Int64 // UnixNano when tracking the current request began
 	handled atomic.Bool  // the current request reached ServeHTTP
 	refused atomic.Int32 // the status net/http wrote for it itself, or 0
 }
@@ -609,15 +609,17 @@ func statusOf(p []byte) int {
 	return code
 }
 
-// connState starts a request's tracking when its first bytes arrive and,
-// when the connection closes, logs a request net/http refused itself.
+// connState logs a request net/http refused itself when the connection
+// closes. Resetting at StateIdle also covers a pipelined parse failure:
+// net/http can consume it from its buffer without emitting StateActive
+// (PLAN.md §10, SR-9).
 func (s *Server) connState(nc net.Conn, state http.ConnState) {
 	c, ok := nc.(*trackedConn)
 	if !ok {
 		return
 	}
 	switch state {
-	case http.StateActive:
+	case http.StateActive, http.StateIdle:
 		c.started.Store(time.Now().UnixNano())
 		c.handled.Store(false)
 		c.refused.Store(0)
