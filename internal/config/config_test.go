@@ -42,7 +42,7 @@ func requiredEnv() map[string]string {
 		"RELAY_APP_ID":         appID,
 		"RELAY_ENVIRONMENT_ID": envID,
 		"RELAY_CLOUD_IDS":      cloudID,
-		"RELAY_UPSTREAM_URL":   "https://provider.example",
+		"RELAY_UPSTREAM_URL":   "https://tara-test.ria.ee",
 	}
 }
 
@@ -180,6 +180,8 @@ func table(t *testing.T) []row {
 			func(c *config.Config) bool { return slices.Equal(c.CloudIDs, []string{cloudID, "site-2"}) }},
 		{"RELAY_UPSTREAM_URL", "https://provider.example:8443", "http://" + marker + ".example",
 			func(c *config.Config) bool { return c.Upstream.String() == "https://provider.example:8443" }},
+		{"RELAY_UPSTREAM_ANY_HOST", "true", "yes" + marker,
+			func(c *config.Config) bool { return c.UpstreamAnyHost }},
 		{"RELAY_UPSTREAM_AUTH", "x-api-key: synthetic", "Authorization: Basic " + marker + "\r\nX: y",
 			func(c *config.Config) bool {
 				return c.Credential != nil && c.Credential.Name == "X-Api-Key" && c.Credential.Value.Reveal() == "synthetic"
@@ -263,12 +265,12 @@ func TestEverySettingIsRead(t *testing.T) {
 	}
 }
 
-// TestSettingNames pins the 15 setting names of PLAN.md §8 as literals: none
+// TestSettingNames pins the 16 setting names of PLAN.md §8 as literals: none
 // of them, nor its _FILE variant, is reported as unknown.
 func TestSettingNames(t *testing.T) {
 	names := []string{
 		"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS", "RELAY_UPSTREAM_URL",
-		"RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
+		"RELAY_UPSTREAM_ANY_HOST", "RELAY_UPSTREAM_AUTH", "RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
 		"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
 		"RELAY_JWKS_REFRESH", "RELAY_JWKS_MAX_AGE", "RELAY_SHUTDOWN_GRACE", "RELAY_LOG_LEVEL",
@@ -298,6 +300,7 @@ func TestDefaults(t *testing.T) {
 		setting   string
 		got, want any
 	}{
+		{"RELAY_UPSTREAM_ANY_HOST", c.UpstreamAnyHost, false},
 		{"RELAY_UPSTREAM_AUTH", c.Credential == nil, true},
 		{"RELAY_UPSTREAM_CA_FILE", c.UpstreamCAs == nil, true},
 		{"RELAY_INSTALLATION_IDS", c.InstallationIDs == nil, true},
@@ -726,10 +729,58 @@ func TestIDs(t *testing.T) {
 	}
 }
 
+// TestUpstreamHostGuard pins SR-5 (PLAN.md §8): only TARA's two origins
+// are accepted unless RELAY_UPSTREAM_ANY_HOST is exactly "true", since the
+// relay sends TARA's credential to this origin.
+func TestUpstreamHostGuard(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, anyHost string
+		ok                 bool
+	}{
+		{"tara_production", "https://tara.ria.ee", unsetValue, true},
+		{"tara_demo", "https://tara-test.ria.ee", unsetValue, true},
+		{"tara_root_slash", "https://tara-test.ria.ee/", unsetValue, true},
+		{"tara_with_override_false", "https://tara.ria.ee", "false", true},
+		{"other_host_refused", "https://provider.example", unsetValue, false},
+		{"other_host_override_false", "https://provider.example", "false", false},
+		{"other_host_override_true", "https://provider.example", "true", true},
+		{"tara_explicit_port_refused", "https://tara.ria.ee:443", unsetValue, false},
+		{"tara_other_port_refused", "https://tara.ria.ee:8443", unsetValue, false},
+		{"tara_upper_case_refused", "https://TARA.ria.ee", unsetValue, false},
+		{"tara_trailing_dot_refused", "https://tara.ria.ee.", unsetValue, false},
+		{"tara_suffix_refused", "https://tara.ria.ee.example", unsetValue, false},
+		{"tara_prefix_refused", "https://eviltara.ria.ee", unsetValue, false},
+		{"loopback_refused", "https://127.0.0.1:9443", unsetValue, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := with(requiredEnv(), "RELAY_UPSTREAM_URL", tc.url)
+			if tc.anyHost != unsetValue {
+				m["RELAY_UPSTREAM_ANY_HOST"] = tc.anyHost
+			}
+			if !tc.ok {
+				loadError(t, m, "RELAY_UPSTREAM_URL")
+				return
+			}
+			c := mustLoad(t, m)
+			if want := tc.anyHost == "true"; c.UpstreamAnyHost != want {
+				t.Errorf("UpstreamAnyHost = %v, want %v", c.UpstreamAnyHost, want)
+			}
+		})
+	}
+	for _, v := range []string{"True", "TRUE", "1", "yes", " true", "true "} {
+		t.Run("override_"+v, func(t *testing.T) {
+			loadError(t, with(requiredEnv(), "RELAY_UPSTREAM_URL", "https://provider.example", "RELAY_UPSTREAM_ANY_HOST", v), "RELAY_UPSTREAM_ANY_HOST")
+		})
+	}
+}
+
+// unsetValue marks a setting a TestUpstreamHostGuard case leaves unset.
+const unsetValue = "<unset>"
+
 // TestUpstreamOrigin checks that the forward parser guards the upstream
 // setting; its rules are tested in internal/forward.
 func TestUpstreamOrigin(t *testing.T) {
-	if c := mustLoad(t, with(requiredEnv(), "RELAY_UPSTREAM_URL", "https://provider.example/")); c.Upstream.String() != "https://provider.example" {
+	if c := mustLoad(t, with(requiredEnv(), "RELAY_UPSTREAM_URL", "https://tara.ria.ee/")); c.Upstream.String() != "https://tara.ria.ee" {
 		t.Errorf("upstream = %q, want an origin without a trailing slash", c.Upstream.String())
 	}
 	for name, v := range map[string]string{

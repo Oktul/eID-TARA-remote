@@ -352,7 +352,8 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 
 ## 5. Forwarding
 
-- **Destination:** `RELAY_UPSTREAM_URL` is an HTTPS origin; the relay always
+- **Destination:** `RELAY_UPSTREAM_URL` is an HTTPS origin, one of TARA's
+  two unless overridden (§8, SR-5); the relay always
   sends `POST` to its fixed `/oidc/token` path (owner, 2026-10-17, D11).
   Nothing in the request can change the scheme, host, port or path (F-3).
   The configured URL must have a host and no userinfo, query, fragment or
@@ -551,6 +552,18 @@ exactly.
 userinfo, query or fragment, since the startup summary prints them. The
 upstream is an origin: only an optional root `/` is accepted and normalized
 away; the JWKS URL may include its endpoint path.
+**Upstream host guard (2026-10-20, SR-5).** `RELAY_UPSTREAM_URL` must be
+exactly `https://tara.ria.ee` or `https://tara-test.ria.ee` after
+normalization (lowercase, no port), unless `RELAY_UPSTREAM_ANY_HOST` is
+`true`. The relay sends TARA's client secret to this origin, and the value
+is copied from an admin page a Jira admin controls, so a wrong or
+social-engineered origin is refused at startup rather than receiving the
+secret on the first login. The override is exactly `true` or `false`
+(default `false`) and exists for synthetic upstreams in tests, the load
+fixture and the image smoke test; with it, every start logs `upstream is
+not TARA`. The Forge app's block only ever writes TARA's two origins. A new
+refusal narrows the accepted settings; no relay is released, so under §4.6
+it is part of the first release.
 `RELAY_UPSTREAM_CA_FILE` holds at most 1 MiB
 of PEM `CERTIFICATE` blocks with only whitespace before, between and after
 them; `_FILE` values are read up to 64 KiB. The
@@ -563,6 +576,7 @@ empty (2026-10-16).
 | `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                |
 | `RELAY_UPSTREAM_URL`                        | yes      |                                     | TARA HTTPS origin, e.g. `https://tara.ria.ee`                            |
+| `RELAY_UPSTREAM_ANY_HOST`                   | no       | `false`                             | `true` allows an upstream other than TARA's two origins (tests only)    |
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)         |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                  |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                      |
@@ -1132,9 +1146,10 @@ promotes unreleased work from `main` into a patch release.
    - SR-4 (fixed 2026-10-20): an inline `RELAY_UPSTREAM_AUTH` (rather
      than `_FILE`) shows in `docker inspect` and the process environment;
      startup now warns about it (§10).
-   - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin; a wrong or
-     social-engineered value sends TARA's credential there. Warn or refuse
-     unless the host is TARA's, with an explicit override.
+   - SR-5 (fixed 2026-10-20): `RELAY_UPSTREAM_URL` accepted any HTTPS
+     origin, so a wrong or social-engineered value would send TARA's
+     credential there. Startup now refuses anything but TARA's two origins
+     unless `RELAY_UPSTREAM_ANY_HOST=true` (§8).
    - SR-6 (info, decided 2026-10-20): `exp - nbf` is capped at 5 minutes
      and `iat` stays ignored (§4.4). The remote key is not pinned: the app
      has one remote, and which claim names it on this path is unrecorded.

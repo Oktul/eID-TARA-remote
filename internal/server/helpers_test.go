@@ -157,8 +157,10 @@ func environ(upstreamURL, jwksURL string, overrides map[string]string) []string 
 		"RELAY_ENVIRONMENT_ID": testEnvID,
 		"RELAY_CLOUD_IDS":      testSiteA + "," + testSiteB,
 		"RELAY_UPSTREAM_URL":   upstreamURL,
-		"RELAY_UPSTREAM_AUTH":  "Authorization: " + testCredential,
-		"RELAY_JWKS_URL":       jwksURL,
+		// The synthetic upstream is on loopback, not TARA (PLAN.md §8, SR-5).
+		"RELAY_UPSTREAM_ANY_HOST": "true",
+		"RELAY_UPSTREAM_AUTH":     "Authorization: " + testCredential,
+		"RELAY_JWKS_URL":          jwksURL,
 	}
 	for k, v := range overrides {
 		if v == unset {

@@ -118,6 +118,11 @@ func serve(ctx context.Context, host string, environ []string, stdout io.Writer,
 		slog.Bool("jwks_proxy", forward.ProxyInUse(cfg.JWKSURL)),
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "starting", append(attrs, cfg.Summary()...)...)
+	if !cfg.Upstream.TARA() {
+		// Only possible with RELAY_UPSTREAM_ANY_HOST=true: say so at every
+		// start, since the credential goes to this origin (SR-5).
+		logger.Warn("upstream is not TARA", "setting", "RELAY_UPSTREAM_ANY_HOST")
+	}
 	if cfg.Credential != nil && !cfg.CredentialFromFile {
 		// An inline secret shows in docker inspect, orchestrator UIs and
 		// /proc/<pid>/environ; _FILE keeps it in a secret mount (PLAN.md §8,

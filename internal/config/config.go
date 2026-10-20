@@ -88,8 +88,9 @@ type Config struct {
 	CloudIDs        []string // RELAY_CLOUD_IDS
 	InstallationIDs []string // RELAY_INSTALLATION_IDS; nil: any installation
 
-	Upstream   forward.Upstream    // RELAY_UPSTREAM_URL
-	Credential *forward.Credential // RELAY_UPSTREAM_AUTH; nil: no credential header
+	Upstream        forward.Upstream    // RELAY_UPSTREAM_URL
+	UpstreamAnyHost bool                // RELAY_UPSTREAM_ANY_HOST; true: not only TARA's origins (SR-5)
+	Credential      *forward.Credential // RELAY_UPSTREAM_AUTH; nil: no credential header
 	// CredentialFromFile records that the credential came from
 	// RELAY_UPSTREAM_AUTH_FILE, for the startup summary (PLAN.md §10).
 	CredentialFromFile bool
@@ -167,6 +168,7 @@ func (c *Config) Summary() []slog.Attr {
 		slog.String("RELAY_ENVIRONMENT_ID", c.EnvironmentID),
 		slog.String("RELAY_CLOUD_IDS", strings.Join(c.CloudIDs, ",")),
 		slog.String("RELAY_UPSTREAM_URL", c.Upstream.String()),
+		slog.Bool("RELAY_UPSTREAM_ANY_HOST", c.UpstreamAnyHost),
 		slog.String("RELAY_UPSTREAM_AUTH", credential),
 		slog.String("RELAY_UPSTREAM_CA_FILE", state(c.UpstreamCAs != nil, "system bundle")),
 		slog.String("RELAY_INSTALLATION_IDS", installations),
@@ -190,13 +192,13 @@ func state(set bool, unset string) string {
 	return unset
 }
 
-// known reports the 15 settings of the PLAN.md §8 table. Any other RELAY_*
+// known reports the 16 settings of the PLAN.md §8 table. Any other RELAY_*
 // variable, other than a known name plus _FILE, is reported as unknown so
 // that a typo does not go unnoticed.
 func known(name string) bool {
 	switch name {
 	case "RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS",
-		"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_AUTH",
+		"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_ANY_HOST", "RELAY_UPSTREAM_AUTH",
 		"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
 		"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 		"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
@@ -275,7 +277,7 @@ func (e environment) load() (*Config, error) {
 	c.AppID = l.appID()
 	c.EnvironmentID = l.id("RELAY_ENVIRONMENT_ID")
 	c.CloudIDs = l.ids("RELAY_CLOUD_IDS", true)
-	c.Upstream = l.upstream()
+	c.Upstream, c.UpstreamAnyHost = l.upstream()
 	c.Credential, c.CredentialFromFile = l.credential()
 	c.UpstreamCAs = l.upstreamCAs()
 	c.InstallationIDs = l.ids("RELAY_INSTALLATION_IDS", false)
@@ -475,14 +477,34 @@ func validID(s string) bool {
 	return true
 }
 
-func (l *loader) upstream() forward.Upstream {
-	const name = "RELAY_UPSTREAM_URL"
+// upstream reads RELAY_UPSTREAM_URL and RELAY_UPSTREAM_ANY_HOST. The relay
+// sends TARA's client secret to this origin, so a wrong or
+// social-engineered value would hand it to someone else; anything but
+// TARA's two origins needs the explicit override (PLAN.md §8, SR-5).
+func (l *loader) upstream() (forward.Upstream, bool) {
+	const name, anyHostName = "RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_ANY_HOST"
 	v, _ := l.value(name, true)
 	u, err := forward.ParseUpstream(v)
 	if err != nil {
 		l.fail(name, err.Error())
 	}
-	return u
+	anyHost := l.boolean(anyHostName)
+	if l.err == nil && !anyHost && !u.TARA() {
+		l.fail(name, "not one of "+strings.Join(forward.TARAOrigins, ", ")+"; set "+anyHostName+"=true for another upstream")
+	}
+	return u, anyHost
+}
+
+// boolean reads a setting that is exactly "true" or "false", default false.
+func (l *loader) boolean(name string) bool {
+	switch l.optional(name, "false") {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	l.fail(name, "want true or false")
+	return false
 }
 
 func (l *loader) credential() (*forward.Credential, bool) {

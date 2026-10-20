@@ -21,6 +21,7 @@ settings=(
 	-e RELAY_ENVIRONMENT_ID=00000000-0000-4000-8000-000000000001
 	-e RELAY_CLOUD_IDS=00000000-0000-4000-8000-000000000002
 	-e RELAY_UPSTREAM_URL=https://upstream.invalid
+	-e RELAY_UPSTREAM_ANY_HOST=true
 	-e RELAY_JWKS_URL=https://jwks.invalid/.well-known/jwks.json
 )
 

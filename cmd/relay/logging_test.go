@@ -47,7 +47,7 @@ func TestIdleUpstreamBytesNeverLogged(t *testing.T) {
 	}))
 	t.Cleanup(jwks.Close)
 	r := startRelay(t, with(validEnv(), "RELAY_JWKS_URL", jwks.URL+"/jwks.json",
-		"RELAY_UPSTREAM_URL", upstream.URL, "RELAY_UPSTREAM_CA_FILE", caPath), jwks.Client())
+		"RELAY_UPSTREAM_URL", upstream.URL, "RELAY_UPSTREAM_ANY_HOST", "true", "RELAY_UPSTREAM_CA_FILE", caPath), jwks.Client())
 	r.waitFor(t, "signing keys ready")
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,

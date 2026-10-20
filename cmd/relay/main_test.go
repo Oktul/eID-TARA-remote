@@ -55,7 +55,7 @@ func validEnv() map[string]string {
 		"RELAY_APP_ID":         appID,
 		"RELAY_ENVIRONMENT_ID": envID,
 		"RELAY_CLOUD_IDS":      cloudID,
-		"RELAY_UPSTREAM_URL":   "https://provider.example",
+		"RELAY_UPSTREAM_URL":   "https://tara-test.ria.ee",
 		"RELAY_JWKS_URL":       unreachableJWKS,
 	}
 }
@@ -378,10 +378,12 @@ func TestServeStartsAndStops(t *testing.T) {
 		env        map[string]string
 		credential string
 		inline     bool // the inline-credential warning is expected (SR-4)
+		notTARA    bool // the upstream-is-not-TARA warning is expected (SR-5)
 	}{
-		{"credential_from_env_shows_set", with(validEnv(), "RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker), "set", true},
-		{"credential_from_file_shows_set_from_file", with(validEnv(), "RELAY_UPSTREAM_AUTH_FILE", credentialFile), "set (from file)", false},
-		{"no_credential_no_warning", validEnv(), "not set", false},
+		{"credential_from_env_shows_set", with(validEnv(), "RELAY_UPSTREAM_AUTH", "Authorization: Basic "+marker), "set", true, false},
+		{"credential_from_file_shows_set_from_file", with(validEnv(), "RELAY_UPSTREAM_AUTH_FILE", credentialFile), "set (from file)", false, false},
+		{"no_credential_no_warning", validEnv(), "not set", false, false},
+		{"other_upstream_warns", with(validEnv(), "RELAY_UPSTREAM_URL", "https://provider.example", "RELAY_UPSTREAM_ANY_HOST", "true"), "not set", false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -417,7 +419,7 @@ func TestServeStartsAndStops(t *testing.T) {
 			want := []string{
 				"time", "level", "msg", "version", "go", "upstream_proxy", "jwks_proxy",
 				"RELAY_APP_ID", "RELAY_ENVIRONMENT_ID", "RELAY_CLOUD_IDS",
-				"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_AUTH",
+				"RELAY_UPSTREAM_URL", "RELAY_UPSTREAM_ANY_HOST", "RELAY_UPSTREAM_AUTH",
 				"RELAY_UPSTREAM_CA_FILE", "RELAY_INSTALLATION_IDS",
 				"RELAY_PORT", "RELAY_UPSTREAM_TIMEOUT",
 				"RELAY_CLOCK_SKEW", "RELAY_JWKS_URL",
@@ -445,6 +447,13 @@ func TestServeStartsAndStops(t *testing.T) {
 				t.Errorf("startup RELAY_PORT = %v, want %d", startup["RELAY_PORT"], r.port)
 			}
 
+			notTARA := find(lines, "upstream is not TARA")
+			switch {
+			case tc.notTARA && (notTARA == nil || notTARA["level"] != "WARN" || notTARA["setting"] != "RELAY_UPSTREAM_ANY_HOST"):
+				t.Errorf("upstream line = %v, want a WARN naming RELAY_UPSTREAM_ANY_HOST", notTARA)
+			case !tc.notTARA && notTARA != nil:
+				t.Errorf("upstream line = %v for a TARA upstream", notTARA)
+			}
 			inline := find(lines, "credential set inline")
 			switch {
 			case tc.inline && (inline == nil || inline["level"] != "WARN" || inline["setting"] != "RELAY_UPSTREAM_AUTH"):

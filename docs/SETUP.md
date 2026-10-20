@@ -51,8 +51,11 @@ RELAY_UPSTREAM_URL=https://tara.ria.ee
   pointing their installation at your relay and using your IP and credential.
   If several of your own sites share one relay, list each site's ID,
   comma-separated. Never add a site you do not control.
-- `RELAY_UPSTREAM_URL` is TARA's HTTPS origin, without a path. The relay
-  forwards only `POST /oidc/token`.
+- `RELAY_UPSTREAM_URL` is TARA's HTTPS origin, without a path:
+  `https://tara.ria.ee` (live) or `https://tara-test.ria.ee` (demo). The
+  relay refuses to start with any other value, because it sends your TARA
+  credential there. If someone asks you to change it, check with the
+  admin page first. The relay forwards only `POST /oidc/token`.
 - `RELAY_INSTALLATION_IDS` is an optional extra pin on the installation. A
   reinstall changes the installation ID, so you must then update it.
 - You add only the credential and TARA's CA file (section 3). Every setting, its
@@ -552,6 +555,7 @@ Which lines are supported, and until when: `docs/SUPPORT.md`.
 | `invalid configuration`, `setting`, `reason` | The setting named, against `docs/PROTOCOL.md` section 8. The process exits with code 2, and Compose and Kubernetes restart it until you fix it.  |
 | `unknown setting`, `name`                 | A mistyped `RELAY_*` name. It often explains a `required` error for the setting you meant.                                                             |
 | `unknown setting`, `name` `RELAY_* (malformed name)` | A `RELAY_` variable whose name has characters other than `A-Z`, `0-9` and `_`, or more than 64 bytes; the name is not logged. Usually `:` was typed for `=` in the deploy file, so the value became part of the name. Correct the entry, and if it holds the credential, remove it from the deploy file and use the secret file (section 3). |
+| `upstream is not TARA`, `setting` `RELAY_UPSTREAM_ANY_HOST` | `RELAY_UPSTREAM_ANY_HOST=true` lets the relay send the credential to an origin that is not TARA's. Only for test setups; unset it. |
 | `credential set inline`, `setting` `RELAY_UPSTREAM_AUTH` | The credential is in the environment, where `docker inspect`, orchestrator UIs and the process environment show it. Move it to a secret file and set `RELAY_UPSTREAM_AUTH_FILE` instead (section 3). |
 | `listen failed`                           | `RELAY_PORT` is in use, or is a port the runtime does not let an unprivileged user open: the relay runs without capabilities.                         |
 | `stopped`, `error` `shutdown_timeout`     | In-flight requests ran longer than `RELAY_SHUTDOWN_GRACE` when the relay stopped.                                                                      |
@@ -569,6 +573,10 @@ setting itself when its content is wrong. Common cases:
 - `RELAY_UPSTREAM_CA_FILE`: `unexpected text outside the PEM blocks`,
   `PEM block is not a CERTIFICATE`, `malformed PEM block`,
   `invalid certificate` or `no PEM certificate` (section 3.2).
+- `RELAY_UPSTREAM_URL`: `not one of https://tara.ria.ee,
+  https://tara-test.ria.ee; …`: the value is not TARA's. Copy it again from
+  the admin page. `RELAY_UPSTREAM_ANY_HOST=true` lifts the check for test
+  setups with a synthetic upstream; never set it for a real relay.
 - `RELAY_APP_ID`: `want ari:cloud:ecosystem::app/ followed by a lowercase
   UUID`, which is also what an unreplaced `<from the admin page>` gives.
 - `set only one of RELAY_UPSTREAM_AUTH and RELAY_UPSTREAM_AUTH_FILE`, and

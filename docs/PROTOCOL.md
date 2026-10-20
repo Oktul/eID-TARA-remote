@@ -430,6 +430,7 @@ only the credential.
 | `RELAY_ENVIRONMENT_ID`                      | yes      |                                     | Expected `app.environment.id`, the environment ARI (D5)                 |
 | `RELAY_CLOUD_IDS`                           | yes      |                                     | Accepted site IDs, comma-separated (D5)                                 |
 | `RELAY_UPSTREAM_URL`                        | yes      |                                     | TARA HTTPS origin, e.g. `https://tara.ria.ee`                             |
+| `RELAY_UPSTREAM_ANY_HOST`                   | no       | `false`                             | `true` allows an upstream other than TARA's two origins (tests only)    |
 | `RELAY_UPSTREAM_AUTH`                       | no       | none                                | Credential header, `Name: value` (secret; usually via `_FILE`)          |
 | `RELAY_UPSTREAM_CA_FILE`                    | no       | system bundle                       | Trust only these CAs for the upstream                                   |
 | `RELAY_INSTALLATION_IDS`                    | no       | any                                 | Extra pin on `app.installationId`                                       |
@@ -465,6 +466,12 @@ Validation rules:
 - **`RELAY_UPSTREAM_URL`** starts with `https://` and must have a host, a
   port from 1 to 65535 if it names one, and no userinfo, query or fragment.
   It has no path, except an optional root `/` that is normalized away.
+  It must be exactly `https://tara.ria.ee` or `https://tara-test.ria.ee`
+  (no port, lowercase), unless `RELAY_UPSTREAM_ANY_HOST` is `true`: the
+  relay sends TARA's credential to this origin, so a wrong value must not
+  pass silently (SR-5). With the override, every start logs `upstream is
+  not TARA`.
+- **`RELAY_UPSTREAM_ANY_HOST`** is exactly `true` or `false`.
 - **`RELAY_JWKS_URL`** starts with `https://` and must have a host, a port
   from 1 to 65535 if it names one, and no userinfo, query or fragment.
 - **`RELAY_UPSTREAM_CA_FILE`** names a file of at most 1 MiB that holds one
