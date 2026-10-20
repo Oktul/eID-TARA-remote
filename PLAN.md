@@ -1726,6 +1726,13 @@ fixtures cover these answers and oversized health bodies.
 `gofmt -w .`, `go vet ./...`, `staticcheck ./...`, `go test -race ./...`
 and `govulncheck ./...` pass in order, with no vulnerabilities found; race
 tests use the pinned Go 1.27.2 Linux builder with networking disabled.
+The paced backlog and soak progress tests now use `testing/synctest` and
+an injected HTTP client (§13), removing their real 200 ms timeout and
+tickers as required by `CONTRIBUTING.md`. In-memory responses keep all
+waits inside the fake clock, including the held request in the backlog
+test.
+All five required checks pass again; both converted timing tests also pass
+100 repetitions under the race detector.
 
 Primary references consulted for the review on 2026-10-15:
 

@@ -147,6 +147,7 @@ type env struct {
 	conns        int
 	slowInterval time.Duration
 	// The paced scenarios' settings (longrun.go).
+	pacedClient *http.Client
 	rate        int
 	reportEvery time.Duration
 	progress    io.Writer

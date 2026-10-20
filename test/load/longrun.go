@@ -57,7 +57,7 @@ func paced(ctx, abort context.Context, e *env, t *tally,
 	pick func(seq int) (token string, body []byte, err error),
 	seen func(outcome string, sent time.Time),
 ) {
-	c := loadClient(e.workers)
+	c := e.pacedClient
 	defer c.CloseIdleConnections()
 	var wg sync.WaitGroup
 	defer wg.Wait() // runs before CloseIdleConnections

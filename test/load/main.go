@@ -212,6 +212,7 @@ func load(ctx context.Context, o options, stdout, stderr io.Writer) error {
 		workers:      o.workers,
 		conns:        o.conns,
 		slowInterval: o.slowInterval,
+		pacedClient:  loadClient(o.workers),
 		rate:         o.rate,
 		reportEvery:  o.reportEvery,
 		progress:     stdout,

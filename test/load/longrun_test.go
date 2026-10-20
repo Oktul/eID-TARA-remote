@@ -8,10 +8,10 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -225,45 +225,44 @@ func TestTallyWindowsSplitEveryRecordOnce(t *testing.T) {
 }
 
 func TestPacedCountsBacklogInsteadOfQueueing(t *testing.T) {
-	release := make(chan struct{})
-	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		<-release
-		w.Header().Set("Relay-Error", "invalid_token")
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer relay.Close()
-	defer close(release) // before Close, which waits for the handler
-	target, err := parseTarget(relay.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := &fixture{responseBody: fill(10, "response-body-")}
-	e := &env{relay: target, fixture: f, workers: 1, rate: 100}
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	tl := newTally()
-	var seen atomic.Int64
-	stopped := make(chan struct{})
-	go func() {
-		defer close(stopped)
-		paced(ctx, t.Context(), e, tl, func(int) (string, []byte, error) { return "token", nil, nil },
-			func(string, time.Time) { seen.Add(1) })
-	}()
-	<-ctx.Done()
-	release <- struct{}{} // the one request in flight may now finish
-	<-stopped
-	r := tl.result()
-	if r.outcomes[outcomeInvalid] != 1 || seen.Load() != 1 || r.errors["backlog"] == 0 {
-		t.Errorf("outcomes %v, errors %v, seen %d; want one answer and the rest backlog", r.outcomes, r.errors, seen.Load())
-	}
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		started := make(chan struct{})
+		c := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			close(started)
+			<-release
+			return &http.Response{StatusCode: 401, Header: http.Header{"Relay-Error": {"invalid_token"}}, Body: http.NoBody, Request: r}, nil
+		})}
+		f := &fixture{responseBody: fill(10, "response-body-")}
+		e := &env{relay: target{base: "http://relay.test"}, pacedClient: c, fixture: f, workers: 1, rate: 100}
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		tl := newTally()
+		var seen atomic.Int64
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			paced(ctx, t.Context(), e, tl, func(int) (string, []byte, error) { return "token", nil, nil },
+				func(string, time.Time) { seen.Add(1) })
+		}()
+		<-started
+		<-ctx.Done()
+		synctest.Wait() // the sender has stopped admitting work before the slot is freed
+		close(release)  // the one request in flight may now finish
+		<-stopped
+		r := tl.result()
+		if r.outcomes[outcomeInvalid] != 1 || seen.Load() != 1 || r.errors["backlog"] == 0 {
+			t.Errorf("outcomes %v, errors %v, seen %d; want one answer and the rest backlog", r.outcomes, r.errors, seen.Load())
+		}
+	})
 }
 
 // soakRelay answers like the relay: a body is a valid request, which it
 // forwards, and an empty one a bad signature. countUpstream says which of
 // them reach the fixture's upstream counter.
-func soakRelay(t *testing.T, f *fixture, stopAfter int64, cancel context.CancelFunc, countUpstream func(valid bool) bool) *httptest.Server {
+func soakRelay(t *testing.T, f *fixture, stopAfter int64, cancel context.CancelFunc, countUpstream func(valid bool) bool) *http.Client {
 	var served atomic.Int64
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if served.Add(1) >= stopAfter {
 			cancel()
 		}
@@ -275,21 +274,24 @@ func soakRelay(t *testing.T, f *fixture, stopAfter int64, cancel context.CancelF
 		if countUpstream(valid) {
 			f.upstreamCalls.Add(1)
 		}
+		resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: http.NoBody, Request: r}
 		if !valid {
-			w.Header().Set("Relay-Error", "invalid_token")
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+			resp.Header.Set("Relay-Error", "invalid_token")
+			resp.StatusCode = 401
+			return resp, nil
 		}
 		if !bytes.Equal(body, f.requestBody) {
 			t.Error("request body differs")
 		}
-		w.Header().Set("Relay-Upstream-Status", "200")
-		_, _ = w.Write(f.responseBody) // a failed write fails the client, which the test checks
-	}))
+		resp.Header.Set("Relay-Upstream-Status", "200")
+		resp.Body = io.NopCloser(bytes.NewReader(f.responseBody))
+		return resp, nil
+	})}
 }
 
 func TestSoakMixesInvalidRequestsAndReportsWindows(t *testing.T) {
 	const stopAfter = 40
+	k := key(t)
 	cases := []struct {
 		name          string
 		countUpstream func(valid bool) bool
@@ -300,36 +302,33 @@ func TestSoakMixesInvalidRequestsAndReportsWindows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fixture{requestBody: fill(100, "request-body-"), responseBody: fill(200, "response-body-")}
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			relay := soakRelay(t, f, stopAfter, cancel, tc.countUpstream)
-			defer relay.Close()
-			target, err := parseTarget(relay.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var progress bytes.Buffer
-			e := &env{
-				relay: target, fits: newMinter(key(t), time.Now), fixture: f,
-				workers: 4, rate: 200, reportEvery: 50 * time.Millisecond, progress: &progress,
-			}
-			tl := newTally()
-			soak(ctx, t.Context(), e, tl)
-			r := tl.result()
-			want := map[string]int64{outcomeForwarded: r.outcomes[outcomeForwarded], outcomeInvalid: r.outcomes[outcomeInvalid]}
-			if !maps.Equal(r.outcomes, want) || r.outcomes[outcomeInvalid] == 0 || r.outcomes[outcomeForwarded] < 8*r.outcomes[outcomeInvalid] {
-				t.Errorf("outcomes = %v, want forwarded and one in ten invalid", r.outcomes)
-			}
-			if len(r.errors) > 0 {
-				t.Errorf("errors = %v", r.errors)
-			}
-			if !strings.Contains(progress.String(), "requests") || !strings.Contains(progress.String(), "jwks fetches") {
-				t.Errorf("no progress line in %q", progress.String())
-			}
-			if (len(r.checks) > 0) != tc.wantCheck {
-				t.Errorf("checks = %q, want failing %v", r.checks, tc.wantCheck)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				f := &fixture{requestBody: fill(100, "request-body-"), responseBody: fill(200, "response-body-")}
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				relay := soakRelay(t, f, stopAfter, cancel, tc.countUpstream)
+				var progress bytes.Buffer
+				e := &env{
+					relay: target{base: "http://relay.test"}, pacedClient: relay, fits: newMinter(k, time.Now), fixture: f,
+					workers: 4, rate: 200, reportEvery: 50 * time.Millisecond, progress: &progress,
+				}
+				tl := newTally()
+				soak(ctx, t.Context(), e, tl)
+				r := tl.result()
+				want := map[string]int64{outcomeForwarded: r.outcomes[outcomeForwarded], outcomeInvalid: r.outcomes[outcomeInvalid]}
+				if !maps.Equal(r.outcomes, want) || r.outcomes[outcomeInvalid] == 0 || r.outcomes[outcomeForwarded] < 8*r.outcomes[outcomeInvalid] {
+					t.Errorf("outcomes = %v, want forwarded and one in ten invalid", r.outcomes)
+				}
+				if len(r.errors) > 0 {
+					t.Errorf("errors = %v", r.errors)
+				}
+				if !strings.Contains(progress.String(), "requests") || !strings.Contains(progress.String(), "jwks fetches") {
+					t.Errorf("no progress line in %q", progress.String())
+				}
+				if (len(r.checks) > 0) != tc.wantCheck {
+					t.Errorf("checks = %q, want failing %v", r.checks, tc.wantCheck)
+				}
+			})
 		})
 	}
 }
