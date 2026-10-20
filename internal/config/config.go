@@ -490,7 +490,7 @@ func (l *loader) upstream() (forward.Upstream, bool) {
 	}
 	anyHost := l.boolean(anyHostName)
 	if l.err == nil && !anyHost && !u.TARA() {
-		l.fail(name, "not one of "+strings.Join(forward.TARAOrigins, ", ")+"; set "+anyHostName+"=true for another upstream")
+		l.fail(name, "not one of "+forward.TARAProductionOrigin+", "+forward.TARADemoOrigin+"; set "+anyHostName+"=true for another upstream")
 	}
 	return u, anyHost
 }

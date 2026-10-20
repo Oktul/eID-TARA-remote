@@ -1623,10 +1623,17 @@ plan and the contributing checklist. Fixes live on
   too preserves one fixed-field request line for each refusal (§10).
   Both pipelined regression cases fail without the fix. Additional
   fixtures cover the documented 417 and 501 refusals and log redaction.
+- Replaced the exported mutable TARA-origin slice with two constants.
+  The host guard implements a fixed policy (§8, SR-5); making it writable
+  from other packages violated the contributing rule against package-level
+  mutable state. Existing host-guard fixtures retain all acceptance and
+  refusal cases, and the diagnostic text is unchanged.
 - `gofmt -w .`, `go vet ./...`, `staticcheck ./...`,
   `go test -race ./...` and `govulncheck ./...` pass in order; no
   vulnerabilities found. Race tests run in the pinned Go 1.27.2 Linux
-  builder with networking disabled.
+  builder with networking disabled. The five checks pass again after the
+  origin-constant change. A local linux/amd64 image build and the repository
+  smoke test pass with the new override setting.
 
 SR-1 still needs the FIT-reuse evidence and SR-7 the owner's decision
 recorded in §14; neither is silently closed by this review. No

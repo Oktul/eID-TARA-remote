@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/textproto"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -74,15 +73,18 @@ func ValidURLPort(p string) bool {
 	return err == nil && n >= 1 && n <= MaxPort
 }
 
-// TARAOrigins are the two origins TARA serves its token endpoint on:
-// production and the demo (test) environment (PLAN.md §5, SR-5).
-var TARAOrigins = []string{"https://tara.ria.ee", "https://tara-test.ria.ee"}
+const (
+	// TARAProductionOrigin is TARA's production token origin (PLAN.md §5, SR-5).
+	TARAProductionOrigin = "https://tara.ria.ee"
+	// TARADemoOrigin is TARA's demo token origin (PLAN.md §5, SR-5).
+	TARADemoOrigin = "https://tara-test.ria.ee"
+)
 
-// TARA reports whether u is exactly one of TARAOrigins. The comparison is
+// TARA reports whether u is exactly one of TARA's two origins. The comparison is
 // byte for byte on the normalized origin, so an explicit port or another
 // spelling of the host does not count as TARA.
 func (u Upstream) TARA() bool {
-	return slices.Contains(TARAOrigins, u.origin)
+	return u.origin == TARAProductionOrigin || u.origin == TARADemoOrigin
 }
 
 // URL returns the fixed TARA token URL. Nothing in a request can change its
