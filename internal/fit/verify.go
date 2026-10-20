@@ -170,8 +170,8 @@ func (v *Verifier) audience(c object) bool {
 
 // dates checks exp and nbf (PLAN.md §4.4, A-4) and caps the lifetime
 // between them (SR-6). iat is not read: Forge does not document it, and
-// nbf already bounds when the token became valid. parseNumericDate already
-// rounded inexact values inward, so the comparisons below are exact.
+// nbf already bounds when the token became valid. Validity rounds inward;
+// the lifetime cap rounds outward, so neither can accept through rounding.
 func (v *Verifier) dates(c object) error {
 	exp, err := parseNumericDate(c["exp"], false)
 	if err != nil {
@@ -184,7 +184,11 @@ func (v *Verifier) dates(c object) error {
 	if !exp.After(nbf) {
 		return reject(ReasonDates)
 	}
-	if exp.Sub(nbf) > MaxLifetime {
+	// Both inputs were validated above; only the rounding direction differs.
+	// Inward rounding would shorten an overlong lifetime into the cap.
+	latestExp, _ := parseNumericDate(c["exp"], true)
+	earliestNBF, _ := parseNumericDate(c["nbf"], false)
+	if latestExp.Sub(earliestNBF) > MaxLifetime {
 		return reject(ReasonLifetime)
 	}
 	now, skew := v.now(), v.policy.ClockSkew

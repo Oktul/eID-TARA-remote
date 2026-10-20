@@ -767,7 +767,12 @@ func TestVerifyClockSkewBoundaries(t *testing.T) {
 		{"exp_one_nanosecond_after_nbf_accepted", "1800000000.000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ""},
 		{"sub_nanosecond_validity_rejected", "1800000000.0000000002", "1800000000.0000000001", 10 * time.Second, at(1800000000, 0), ReasonDates},
 		{"lifetime_at_max_accepted", "1800000300", "1800000000", 10 * time.Second, at(1800000000, 0), ""},
+		{"lifetime_at_max_fractional_accepted", "1800000300.123456789", "1800000000.123456789", 10 * time.Second, at(1800000000, 123456789), ""},
+		{"lifetime_at_max_sub_nanosecond_conservatively_rejected", "1800000300.0000000001", "1800000000.0000000001", 10 * time.Second, at(1800000000, 1), ReasonLifetime},
 		{"lifetime_over_max_rejected", "1800000300.000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
+		{"lifetime_sub_nanosecond_exp_over_max_rejected", "1800000300.0000000001", "1800000000", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
+		{"lifetime_sub_nanosecond_nbf_over_max_rejected", "1800000300.000000001", "1800000000.0000000009", 10 * time.Second, at(1800000000, 1), ReasonLifetime},
+		{"lifetime_sub_nanosecond_inside_cap_accepted", "1800000299.9999999999", "1800000000.0000000001", 10 * time.Second, at(1800000000, 1), ""},
 		{"lifetime_hours_rejected", "1800036000", "1800000000", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
 		{"lifetime_full_range_rejected", "253402300799", "0", 10 * time.Second, at(1800000000, 0), ReasonLifetime},
 	}

@@ -249,8 +249,10 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
 
   **Implementation details (2026-10-15).** A NumericDate with a minus sign
   is refused, even `-0`. Dates are compared exactly at nanosecond
-  resolution: a fractional `exp` rounds down and `nbf` rounds up, so
-  sub-nanosecond rounding can only reject. JSON documents nest at most
+  resolution: for the validity window, a fractional `exp` rounds down and
+  `nbf` rounds up. The lifetime cap uses `exp` rounded up and `nbf` rounded
+  down (review fix, 2026-10-20), so sub-nanosecond rounding can only reject
+  in either check. JSON documents nest at most
   16 levels; a FIT payload uses five (`app.installation.contexts[i]`), so
   the bound only refuses hostile input.
 - The response never says which check failed. The log does (`auth_reason`,
@@ -1628,11 +1630,17 @@ plan and the contributing checklist. Fixes live on
   from other packages violated the contributing rule against package-level
   mutable state. Existing host-guard fixtures retain all acceptance and
   refusal cases, and the diagnostic text is unchanged.
+- Fixed the lifetime cap's fractional boundary (§4.4, SR-6). Reusing the
+  inward-rounded validity dates could admit a lifetime just over five
+  minutes by less than two nanoseconds. The cap now compares outward
+  bounds, retaining the rule that rounding can only reject. Both over-cap
+  regression cases fail without the fix; exact nanosecond boundaries and
+  an inexact lifetime within the cap remain accepted.
 - `gofmt -w .`, `go vet ./...`, `staticcheck ./...`,
   `go test -race ./...` and `govulncheck ./...` pass in order; no
   vulnerabilities found. Race tests run in the pinned Go 1.27.2 Linux
-  builder with networking disabled. The five checks pass again after the
-  origin-constant change. A local linux/amd64 image build and the repository
+  builder with networking disabled. The five checks pass again after each
+  further fix. A local linux/amd64 image build and the repository
   smoke test pass with the new override setting.
 
 SR-1 still needs the FIT-reuse evidence and SR-7 the owner's decision

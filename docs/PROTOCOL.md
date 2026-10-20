@@ -244,8 +244,9 @@ out-of-range dates are refused, and so is a NumericDate with a minus sign,
 even `-0`. With the skew `RELAY_CLOCK_SKEW`, the relay requires `exp > nbf`,
 `exp - nbf <= 5 minutes`, `now < exp + skew` and `now + skew >= nbf` (A-4,
 SR-6). `iat` is ignored like any other claim. Dates are compared exactly
-at nanosecond resolution: a fractional `exp` rounds down and `nbf` rounds
-up, so sub-nanosecond rounding can only reject. Atlassian's example token
+at nanosecond resolution: for the validity window, a fractional `exp` rounds
+down and `nbf` rounds up; the lifetime cap instead rounds `exp` up and `nbf`
+down. Sub-nanosecond rounding can only reject in either check. Atlassian's example token
 lives 25 s; the relay depends on that lifetime only through the 5-minute
 cap.
 
