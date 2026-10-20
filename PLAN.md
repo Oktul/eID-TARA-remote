@@ -2,24 +2,17 @@
 
 _Status 2026-10-20: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
 and checked locally (§16). Phase 0 ran on 2026-10-16: every gate passed
-except PINNED, which needs a site with data residency (§14). All three
-review rounds are done for every code change on `main`, with no open
-findings. The last code changes came from `claude/simplify` and
-`codex/simplify-tara`. They removed the site fallback and built-in TLS,
-refused exponent dates, fixed the body, concurrency and request-header
-limits, dropped unreachable guards and local parsers, and narrowed
-forwarding to TARA's token endpoint (owner decisions in §4.4, §5, §6, §8, D8
-and D11). The owner fast-forwarded `main` to them on 2026-10-17, then to
-docs-only commits without review: this status, the TARA wording of
-`AGENTS.md`, §1 and the diagrams, and a pass that brought every document in
-line with the code. All other branches were deleted the same day. Not
-tagged, pushed or published; no workflow has run, since the repository has
-no remote yet. An end-to-end security review on
-2026-10-20 refused everything it should. SR-2 and the docs finding are
-fixed on review branches; SR-1 and SR-3 to SR-9 await the owner (§16). Still open: the PINNED gate, source CI
-on GitHub and the Phase 2 release verifications.
-Adding `remotes` to the Forge app's main line still needs the owner's
-approval (Oktul eID SSO, `PLAN.md` §4.7)._
+except PINNED, which needs a site with data residency (§14). Phase 3 is on
+the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA demo
+login went through a local relay on 2026-10-20, and TARA live waits for a
+live client and a registered IP. Every code change on `main` was reviewed
+by an agent that did not write it, with no open findings; the last moved
+the concurrency slot after the FIT check (SR-2, owner 2026-10-20). An
+end-to-end security review on 2026-10-20 refused everything it should;
+its open low and info findings wait in §14 Phase 4. Not tagged, pushed or
+published; no workflow has run, since the repository has no remote yet.
+Still open: the PINNED gate, source CI on GitHub and the Phase 2 release
+verifications._
 
 ## 1. What it is
 
@@ -1097,7 +1090,35 @@ promotes unreleased work from `main` into a patch release.
    - on the admin page: the relay URL, the configuration block, the health
      check and the "relay too old" message;
    - TARA demo and production.
+   Built on the Forge app's main line on 2026-10-18; TARA demo through a
+   local relay passed on 2026-10-20 (§16). TARA production still needs a
+   live client from RIA and the relay on a registered IP.
 4. **Acceptance:** §13 by hand, plus a security review of both sides.
+   An end-to-end review ran on 2026-10-20 against a development build
+   (§16). Its open low and info findings, for the owner to decide before
+   v1:
+   - SR-1: no replay protection. A FIT seen in clear (a TLS-terminating hop,
+     a proxy that logs headers) can be reused with any body until
+     `exp + RELAY_CLOCK_SKEW`, and the relay adds the credential each time.
+     Check first whether FITs carry `jti` and whether Forge ever reuses one;
+     then a seen set for `POST /oidc/token` until `exp + skew`.
+   - SR-4: an inline `RELAY_UPSTREAM_AUTH` (rather than `_FILE`) shows in
+     `docker inspect` and the process environment, without a warning.
+   - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin; a wrong or
+     social-engineered value sends TARA's credential there. Warn or refuse
+     unless the host is TARA's, with an explicit override.
+   - SR-6 (info): `iat` ignored, `exp - nbf` uncapped, and no pin on the
+     remote key, so a second remote of the same app would be accepted.
+   - SR-7 (info): no `Content-Type` check on forwarded bodies.
+   - SR-8 (info): no `Cache-Control: no-store` or `nosniff` on relay
+     answers.
+   - SR-9 (info): errors Go's server answers itself (431, 400) leave no
+     log line.
+
+   Not covered by that review, still to do: TARA live (the allowlist and
+   live client), the Caddy front end with its `remote_ip` filter and
+   inbound HTTP/2, load and soak with a JWKS outage, PINNED (§15 Q3),
+   `govulncheck` on a release build, and SR-1 with a real FIT.
 5. **Publish:** public repository, `LICENSE`, `SECURITY.md`, support policy,
    `v1.0.0`.
 
@@ -1487,38 +1508,31 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
   `400 unauthorized_client` wrapped; a wrong CA file `502
   upstream_unreachable` without sending the credential; an unreadable CA
   file stops startup.
-- **Open findings (low or info), awaiting the owner.** Numbered SR-
-  (security review) so they do not clash with the R- requirements in §6.
-  - SR-1: no replay protection; a FIT seen in clear can be reused until
-    `exp + RELAY_CLOCK_SKEW` with any body. Check whether FITs carry `jti`
-    before adding a seen set.
-  - SR-2 (reproduced; fixed 2026-10-20, `claude/fit-before-slot`): the
-    slot was taken before the FIT check; 80 parallel unknown-`kid` requests
-    got 30 `503 too_busy` while one JWKS refresh ran (about 60 ms). The
-    owner decided on 2026-10-20 to take the slot after the FIT and route
-    checks (§4.2 step 3). Under §4.6 this keeps protocol v1: every code and
-    its meaning stay, a caller with a valid FIT sees `too_busy` only on a
-    token POST, and `too_busy` now carries `Relay-Version` like every
-    authenticated answer. No relay has been released, so none in the field
-    behaves otherwise. `TestKeyWaitHoldsNoSlot` fails on the old order; the
-    load test's `invalid` and `unknown-kid` scenarios now fail on any
-    `too_busy`.
-  - SR-3: the Caddyfile's Atlassian-range filter is commented out, and it
-    bounds only the connections to the relay, not client connections or
-    their rate (`docs/SETUP.md` 6.3 asks for both).
-  - SR-4: an inline `RELAY_UPSTREAM_AUTH` gets no warning.
-  - SR-5: `RELAY_UPSTREAM_URL` accepts any HTTPS origin, not only TARA.
-  - SR-6 to SR-9 (info): `iat` ignored and `exp - nbf` uncapped; no
-    `Content-Type` check on forwarded bodies; no `Cache-Control: no-store`
-    or `nosniff` on relay answers; errors Go's server answers itself (431,
-    400) are not logged.
-  - Docs (fixed 2026-10-20, `claude/setup-front-end-docs`): `docs/SETUP.md`
-    6.3 now says a front end must pass the relay's answers through
-    unchanged (the Cloudflare tunnel replaced the relay's `502` with its own
-    page, so the app saw no `Relay-Protocol`), and that whatever terminates
-    TLS in front of the relay sees the code and TARA's token answer
-    (personal data). The host clock (the test VM's ran about 1 s ahead) was
-    already covered by `docs/SETUP.md` 7.
+- **Findings**, numbered SR- (security review) so they do not clash with
+  the R- requirements in §6. None is critical, high or medium.
+  - SR-2 (reproduced, fixed 2026-10-20): the slot was taken before the FIT
+    check; 80 parallel unknown-`kid` requests got 30 `503 too_busy` while
+    one JWKS refresh ran (about 60 ms). The owner decided on 2026-10-20 to
+    take the slot after the FIT and route checks (§4.2 step 3). Under §4.6
+    this keeps protocol v1: every code and its meaning stay, a caller with a
+    valid FIT sees `too_busy` only on a token POST, and `too_busy` now
+    carries `Relay-Version` like every authenticated answer. No relay has
+    been released, so none in the field behaves otherwise.
+    `TestKeyWaitHoldsNoSlot` fails on the old order; the load test's
+    `invalid` and `unknown-kid` scenarios now fail on any `too_busy`.
+  - SR-3 (closed, owner 2026-10-20): the Caddyfile's Atlassian-range filter
+    ships commented out, and Caddy bounds only its connections to the
+    relay. It stays so: `docs/SETUP.md` 6.3 and 6.4 make the filter and an
+    inbound connection cap required setup steps.
+  - Docs (fixed 2026-10-20): `docs/SETUP.md` 6.3 now says a front end must
+    pass the relay's answers through unchanged (the Cloudflare tunnel
+    replaced the relay's `502` with its own page, so the app saw no
+    `Relay-Protocol`), and that whatever terminates TLS in front of the
+    relay sees the code and TARA's token answer (personal data). The host
+    clock (the test VM's ran about 1 s ahead) was already in
+    `docs/SETUP.md` 7.
+  - SR-1 and SR-4 to SR-9 are open, with what the review did not cover:
+    §14, Phase 4.
 
 Primary references consulted for the review on 2026-10-15:
 
