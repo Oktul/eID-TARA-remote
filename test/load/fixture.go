@@ -297,12 +297,19 @@ type fixture struct {
 
 	upstreamCalls atomic.Int64
 	jwksFetches   atomic.Int64
+	// jwksDown makes the JWKS answer 503, as an unreachable CDN would
+	// (the jwks-outage scenario, PLAN.md §4.5).
+	jwksDown atomic.Bool
 }
 
 func (f *fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == jwksPath:
 		f.jwksFetches.Add(1)
+		if f.jwksDown.Load() {
+			http.Error(w, "jwks down for the outage scenario", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		// A failed write means the relay went away; its fetch fails on its own.
 		_, _ = w.Write(f.jwks)

@@ -68,6 +68,11 @@ type scenario struct {
 	upstream  bool   // requests may reach the upstream
 	overCap   bool   // the load must exceed the relay's concurrency cap
 	jwksLimit bool   // JWKS fetches must respect the unknown-key limit
+	// keysExpire means /readyz must report the expired keys at least once
+	// and may fail only that way; /livez must still never fail.
+	keysExpire bool
+	// length, if set, replaces -duration for this scenario.
+	length func(e *env) time.Duration
 }
 
 func allScenarios() []scenario {
@@ -100,6 +105,16 @@ func allScenarios() []scenario {
 			name: "idle", unit: "connections", timing: "time to close", run: idle,
 			ok: oneOf(outcomeClosed, outcomeOpen),
 		},
+		{
+			name: "soak", unit: "requests", timing: "latency", run: soak,
+			ok:       oneOf(outcomeForwarded, outcomeInvalid),
+			required: outcomeForwarded, upstream: true,
+		},
+		{
+			name: "jwks-outage", unit: "requests", timing: "latency", run: jwksOutage,
+			ok:       oneOf(outcomeForwarded, outcomeNotReady),
+			required: outcomeForwarded, upstream: true, keysExpire: true, length: outageLength,
+		},
 	}
 }
 
@@ -131,6 +146,12 @@ type env struct {
 	workers      int
 	conns        int
 	slowInterval time.Duration
+	// The paced scenarios' settings (longrun.go).
+	rate        int
+	reportEvery time.Duration
+	progress    io.Writer
+	jwksRefresh time.Duration // what printSettings told the relay
+	jwksMaxAge  time.Duration
 }
 
 // result is one scenario's report.
@@ -144,6 +165,8 @@ type result struct {
 	probe              probeTally
 	upstreamCalls      int64
 	jwksFetches        int64
+	notes              [][2]string // scenario-specific report rows
+	checks             []string    // scenario-specific failed checks
 	failures           []string
 }
 
@@ -172,6 +195,10 @@ func runScenario(ctx context.Context, e *env, s scenario, d time.Duration) resul
 	return r
 }
 
+// readyzExpired is how the probe reports a relay whose keys have expired
+// (PLAN.md §4.5).
+const readyzExpired = "/readyz status 503"
+
 // verdict lists the checks a scenario failed. They are the acceptance
 // properties of PLAN.md §13: the full load passes the concurrency cap,
 // overload never fails a health probe (§6), every answer is one the
@@ -198,8 +225,17 @@ func verdict(s scenario, r result) []string {
 	if n := sum(r.errors); n > 0 {
 		f = append(f, fmt.Sprintf("%d errors", n))
 	}
-	if n := sum(r.probe.failures); n > 0 {
-		f = append(f, fmt.Sprintf("%d failed health probes", n))
+	var probeFailures int64
+	for k, n := range r.probe.failures {
+		if !s.keysExpire || k != readyzExpired {
+			probeFailures += n
+		}
+	}
+	if probeFailures > 0 {
+		f = append(f, fmt.Sprintf("%d failed health probes", probeFailures))
+	}
+	if s.keysExpire && r.probe.failures[readyzExpired] == 0 {
+		f = append(f, "/readyz never reported the expired keys")
 	}
 	if !s.upstream && r.upstreamCalls > 0 {
 		f = append(f, fmt.Sprintf("%d requests reached the upstream", r.upstreamCalls))
@@ -207,7 +243,7 @@ func verdict(s scenario, r result) []string {
 	if limit := int64(r.elapsed/relayUnknownRefresh) + 1; s.jwksLimit && r.jwksFetches > limit {
 		f = append(f, fmt.Sprintf("%d JWKS fetches, more than %d", r.jwksFetches, limit))
 	}
-	return f
+	return append(f, r.checks...)
 }
 
 func sum(m map[string]int64) int64 {
@@ -294,13 +330,14 @@ func preflight(ctx context.Context, e *env) error {
 // readLimit bounds an answer: the fake upstream's body, or a relay error.
 func readLimit(f *fixture) int64 { return int64(max(len(f.responseBody), maxSmallBody)) }
 
-// send makes one request and records its outcome. Only a forwarded answer
-// carries the upstream body, which must arrive unchanged (PLAN.md D7).
-func send(ctx context.Context, c *http.Client, e *env, t *tally, token string, body []byte, limit int64) {
+// send makes one request, records its outcome and returns it, or "" when
+// the request ended in an error. Only a forwarded answer carries the
+// upstream body, which must arrive unchanged (PLAN.md D7).
+func send(ctx context.Context, c *http.Client, e *env, t *tally, token string, body []byte, limit int64) string {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.relay.base+tokenPath, bytes.NewReader(body))
 	if err != nil {
 		t.fail("request")
-		return
+		return ""
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -311,14 +348,16 @@ func send(ctx context.Context, c *http.Client, e *env, t *tally, token string, b
 	switch {
 	case err != nil && ctx.Err() != nil:
 		// Interrupted by the operator; not something the relay did.
+		return ""
 	case err != nil:
 		t.fail(errorClass(err))
-	default:
-		t.addTimed(outcome, elapsed)
-		if outcome == outcomeForwarded && !bytes.Equal(got, e.fixture.responseBody) {
-			t.flag("body_mismatch")
-		}
+		return ""
 	}
+	t.addTimed(outcome, elapsed)
+	if outcome == outcomeForwarded && !bytes.Equal(got, e.fixture.responseBody) {
+		t.flag("body_mismatch")
+	}
+	return outcome
 }
 
 // exchange sends req and reads its answer up to limit bytes.
@@ -686,6 +725,11 @@ type tally struct {
 	outcomes map[string]int64
 	errors   map[string]int64
 	latency  *histogram
+	notes    [][2]string
+	checks   []string
+	// window, once opened, also gets every record, so a soak can report
+	// each interval on its own (swapWindow).
+	window *tally
 }
 
 func newTally() *tally {
@@ -698,6 +742,9 @@ func (t *tally) add(outcome string) {
 	defer t.mu.Unlock()
 	t.count++
 	t.outcomes[outcome]++
+	if t.window != nil {
+		t.window.add(outcome)
+	}
 }
 
 // addTimed counts an outcome and its duration.
@@ -707,6 +754,9 @@ func (t *tally) addTimed(outcome string, d time.Duration) {
 	t.count++
 	t.outcomes[outcome]++
 	t.latency.record(d)
+	if t.window != nil {
+		t.window.addTimed(outcome, d)
+	}
 }
 
 // fail counts an attempt that ended in an error instead of an outcome.
@@ -715,6 +765,9 @@ func (t *tally) fail(class string) {
 	defer t.mu.Unlock()
 	t.count++
 	t.errors[class]++
+	if t.window != nil {
+		t.window.fail(class)
+	}
 }
 
 // flag adds an error to an attempt already counted.
@@ -722,6 +775,40 @@ func (t *tally) flag(class string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.errors[class]++
+	if t.window != nil {
+		t.window.flag(class)
+	}
+}
+
+// check records a failed scenario-specific check.
+func (t *tally) check(failure string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.checks = append(t.checks, failure)
+}
+
+// note adds a scenario-specific row to the report.
+func (t *tally) note(label, value string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.notes = append(t.notes, [2]string{label, value})
+}
+
+// openWindow starts recording into a window as well.
+func (t *tally) openWindow() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.window = newTally()
+}
+
+// swapWindow returns the current window and opens a new one. Records go to
+// the window under t's lock, so each lands in exactly one window.
+func (t *tally) swapWindow() *tally {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	w := t.window
+	t.window = newTally()
+	return w
 }
 
 func (t *tally) result() result {
@@ -735,6 +822,8 @@ func (t *tally) result() result {
 		p50:      t.latency.percentile(50),
 		p95:      t.latency.percentile(95),
 		p99:      t.latency.percentile(99),
+		notes:    slices.Clone(t.notes),
+		checks:   slices.Clone(t.checks),
 	}
 }
 

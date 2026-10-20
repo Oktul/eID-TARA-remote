@@ -897,7 +897,7 @@ func TestWaitReadyNeedsA200(t *testing.T) {
 // literals: they are the relay's contract (PLAN.md §8).
 func TestPrintSettingsNamesEveryRequiredSetting(t *testing.T) {
 	var b strings.Builder
-	printSettings(&b, "https://127.0.0.1:9443", "/tmp/load-ca.pem")
+	printSettings(&b, "https://127.0.0.1:9443", "/tmp/load-ca.pem", nil)
 	for _, line := range []string{
 		"RELAY_APP_ID=ari:cloud:ecosystem::app/11111111-1111-4111-8111-111111111111\n",
 		"RELAY_ENVIRONMENT_ID=ari:cloud:ecosystem::environment/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222\n",

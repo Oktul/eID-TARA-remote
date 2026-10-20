@@ -77,7 +77,8 @@ docker buildx build --load --tag eid-forge-remote:dev .
 
 The acceptance load test, `go run ./test/load -relay <url>`, serves its own
 JWKS and upstream and prints the settings to start the relay with
-(`PLAN.md` §13).
+(`PLAN.md` §13). `-scenario soak -duration 72h` runs the soak and
+`-scenario jwks-outage` a JWKS outage; `-h` lists every scenario.
 
 | Path        | Contents                                      |
 | ----------- | --------------------------------------------- |

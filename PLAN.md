@@ -1032,7 +1032,28 @@ promotes unreleased work from `main` into a patch release.
     answer `too_busy`. Record measured peak memory, connection counts, CPU
     and health-probe behavior; overload must not cause a liveness restart
     or unbounded memory growth;
-  - a 72-hour soak on a VM;
+  - a 72-hour soak on a VM: `-scenario soak -duration 72h`, valid FITs at
+    `-rate` (default 5/s) with every tenth signature bad, a progress line
+    per `-report-every` (default 5 min) and container memory sampled
+    alongside (`docker stats`). Every answer must be forwarded or
+    `invalid_token`, no health probe may fail, no rejected request may
+    reach the upstream, and memory must stay flat;
+  - a JWKS outage (`-scenario jwks-outage`, added 2026-10-20): the test
+    JWKS answers 503 while valid FITs go on at `-rate`, with the relay
+    started with the printed `RELAY_JWKS_REFRESH=30s` and
+    `RELAY_JWKS_MAX_AGE=2m`. The keys must expire between max age minus
+    refresh and max age into the outage (§4.5; later would trust keys past
+    the bound), nothing may be forwarded after that, `/readyz` must turn
+    503 while `/livez` never fails (§6), and forwarding must resume within
+    `JWKSRetryMax` once the JWKS is back. About 5 minutes. First runs
+    2026-10-20, the relay image in Docker Desktop on Windows, the generator
+    on the host: a 1-minute soak passed (299 requests, p99 229 ms, memory
+    10–11 MiB); the outage expired the keys at 2m0s, forwarded nothing
+    after, and forwarded again 33 s after the JWKS was back. Its first run
+    failed on one `/readyz` probe timeout (1 s) while `/livez` passed;
+    readiness is one atomic load, so that points at Docker Desktop's port
+    forwarding, and the rerun passed with the slowest probe at 24 ms. These
+    runs check the tool; the acceptance results still need the VM;
   - killing the process gives a healthy restart within 10 s;
   - SIGTERM lets in-flight requests finish;
   - an image scan (Trivy or Grype) shows only the Go binary and the Go

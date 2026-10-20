@@ -64,6 +64,13 @@ const (
 	defaultUpstreamDelay = 100 * time.Millisecond
 	defaultSlowInterval  = time.Second
 	defaultReadyTimeout  = 2 * time.Minute
+	// The paced scenarios (longrun.go): about what a large site makes at
+	// its morning peak, a progress line per five minutes, and JWKS ages
+	// that make the outage take minutes instead of the relay's 24 h.
+	defaultRate        = 5
+	defaultReportEvery = 5 * time.Minute
+	defaultJWKSRefresh = 30 * time.Second
+	defaultJWKSMaxAge  = 2 * time.Minute
 )
 
 // Flag bounds, so that a mistyped flag cannot make the generator exhaust the
@@ -76,7 +83,11 @@ const (
 	maxUpstreamDelay = time.Minute
 	maxSlowInterval  = time.Minute
 	maxReadyTimeout  = time.Hour
-	maxHostBytes     = 253 // a DNS name
+	maxRate          = 1000
+	minReportEvery   = time.Second
+	maxReportEvery   = 24 * time.Hour
+	maxJWKSMaxAge    = 24 * time.Hour // the relay's default (PLAN.md §4.5)
+	maxHostBytes     = 253            // a DNS name
 	caFileMode       = 0o644
 )
 
@@ -103,6 +114,10 @@ type options struct {
 	upstreamDelay time.Duration
 	slowInterval  time.Duration
 	readyTimeout  time.Duration
+	rate          int
+	reportEvery   time.Duration
+	jwksRefresh   time.Duration
+	jwksMaxAge    time.Duration
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -173,7 +188,7 @@ func load(ctx context.Context, o options, stdout, stderr io.Writer) error {
 	}()
 
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	printSettings(stdout, "https://"+net.JoinHostPort(o.host, port), caPath)
+	printSettings(stdout, "https://"+net.JoinHostPort(o.host, port), caPath, jwksAges(o))
 
 	pc := probeClient()
 	fmt.Fprintf(stderr, "load: waiting up to %s for %s/readyz\n", o.readyTimeout, o.probeBase)
@@ -197,17 +212,26 @@ func load(ctx context.Context, o options, stdout, stderr io.Writer) error {
 		workers:      o.workers,
 		conns:        o.conns,
 		slowInterval: o.slowInterval,
+		rate:         o.rate,
+		reportEvery:  o.reportEvery,
+		progress:     stdout,
+		jwksRefresh:  o.jwksRefresh,
+		jwksMaxAge:   o.jwksMaxAge,
 	}
 	if err := preflight(ctx, e); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "\nrelay %s, %d workers, %d connections, %d-byte requests, %d-byte responses, upstream delay %s, %s per scenario\n",
-		o.relay.base, o.workers, o.conns, o.bodyBytes, o.responseBytes, o.upstreamDelay, o.duration)
+	fmt.Fprintf(stdout, "\nrelay %s, %d workers, %d connections, %d-byte requests, %d-byte responses, upstream delay %s, %s per scenario, %d requests/s when paced\n",
+		o.relay.base, o.workers, o.conns, o.bodyBytes, o.responseBytes, o.upstreamDelay, o.duration, o.rate)
 	fmt.Fprintf(stdout, "percentiles are histogram bucket bounds, at most 1/%d above the measured value\n", histogramSub)
 	var failed []string
 	for _, s := range o.scenarios {
-		fmt.Fprintf(stderr, "load: running %s for %s\n", s.name, o.duration)
-		r := runScenario(ctx, e, s, o.duration)
+		d := o.duration
+		if s.length != nil {
+			d = s.length(e)
+		}
+		fmt.Fprintf(stderr, "load: running %s for %s\n", s.name, d)
+		r := runScenario(ctx, e, s, d)
 		printResult(stdout, r)
 		if len(r.failures) > 0 {
 			failed = append(failed, s.name)
@@ -224,10 +248,21 @@ func load(ctx context.Context, o options, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// jwksAges returns RELAY_JWKS_REFRESH and RELAY_JWKS_MAX_AGE to print, or
+// nil when no selected scenario depends on them and the relay keeps its
+// defaults.
+func jwksAges(o options) *[2]time.Duration {
+	if !slices.ContainsFunc(o.scenarios, func(s scenario) bool { return s.keysExpire }) {
+		return nil
+	}
+	return &[2]time.Duration{o.jwksRefresh, o.jwksMaxAge}
+}
+
 // printSettings prints what the relay needs, in env-file form. The site,
 // environment and app pins are the synthetic identities the FITs carry
-// (PLAN.md D5, §8).
-func printSettings(w io.Writer, fixtureURL, caPath string) {
+// (PLAN.md D5, §8). ages, if set, are the JWKS settings the jwks-outage
+// checks assume.
+func printSettings(w io.Writer, fixtureURL, caPath string, ages *[2]time.Duration) {
 	fmt.Fprintf(w, `Start the relay with these settings (env-file form),
 and restart it for every run: the signing key and the CA are new each time.
 RELAY_UPSTREAM_CA_FILE and SSL_CERT_FILE make it trust the fixture's CA for the upstream
@@ -244,6 +279,9 @@ RELAY_UPSTREAM_CA_FILE=%s
 SSL_CERT_FILE=%s
 
 `, appID, environmentID, cloudID, fixtureURL, fixtureURL+jwksPath, caPath, caPath)
+	if ages != nil {
+		fmt.Fprintf(w, "RELAY_JWKS_REFRESH=%s\nRELAY_JWKS_MAX_AGE=%s\n\n", ages[0], ages[1])
+	}
 }
 
 func printResult(w io.Writer, r result) {
@@ -261,6 +299,9 @@ func printResult(w io.Writer, r result) {
 	rows(w, "probe failures", r.probe.failures)
 	row(w, "upstream calls", strconv.FormatInt(r.upstreamCalls, 10))
 	row(w, "jwks fetches", strconv.FormatInt(r.jwksFetches, 10))
+	for _, n := range r.notes {
+		row(w, n[0], n[1])
+	}
 	if len(r.failures) == 0 {
 		row(w, "result", "ok")
 	} else {
@@ -307,6 +348,13 @@ Runs the acceptance load scenarios of PLAN.md §13 against a running relay:
   slow-headers  -conns connections writing headers one byte per -slow-interval;
                 -duration must exceed the 5 s header timeout (PLAN.md §6)
   idle          -conns idle keep-alive connections
+  soak          valid FITs at -rate, every tenth with a bad signature, and a
+                progress line per -report-every; run it for hours (-duration)
+  jwks-outage   valid FITs at -rate while the JWKS answers 503 until the
+                relay's keys must have expired, then back; takes
+                -jwks-max-age plus 3m, whatever -duration says
+
+The default list leaves out soak and jwks-outage, which take minutes to days.
 
 Flags:
 `)
@@ -326,6 +374,10 @@ Flags:
 	upstreamDelay := fs.Duration("upstream-delay", defaultUpstreamDelay, "fake upstream delay, which keeps more requests in flight than the relay's cap")
 	slowInterval := fs.Duration("slow-interval", defaultSlowInterval, "time between the bytes of a slow request")
 	readyTimeout := fs.Duration("ready-timeout", defaultReadyTimeout, "how long to wait for the relay's /readyz")
+	rate := fs.Int("rate", defaultRate, "`requests` per second in soak and jwks-outage")
+	reportEvery := fs.Duration("report-every", defaultReportEvery, "time between soak progress lines")
+	jwksRefresh := fs.Duration("jwks-refresh", defaultJWKSRefresh, "RELAY_JWKS_REFRESH printed for jwks-outage")
+	jwksMaxAge := fs.Duration("jwks-max-age", defaultJWKSMaxAge, "RELAY_JWKS_MAX_AGE printed for jwks-outage")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return options{}, err
@@ -347,6 +399,10 @@ Flags:
 		upstreamDelay: *upstreamDelay,
 		slowInterval:  *slowInterval,
 		readyTimeout:  *readyTimeout,
+		rate:          *rate,
+		reportEvery:   *reportEvery,
+		jwksRefresh:   *jwksRefresh,
+		jwksMaxAge:    *jwksMaxAge,
 	}
 	var err error
 	if o.relay, err = parseTarget(*relay); err != nil {
@@ -385,6 +441,14 @@ Flags:
 		return options{}, fmt.Errorf("-slow-interval must be above 0 and at most %s", maxSlowInterval)
 	case o.readyTimeout <= 0 || o.readyTimeout > maxReadyTimeout:
 		return options{}, fmt.Errorf("-ready-timeout must be above 0 and at most %s", maxReadyTimeout)
+	case o.rate < 1 || o.rate > maxRate:
+		return options{}, fmt.Errorf("-rate must be 1 to %d", maxRate)
+	case o.reportEvery < minReportEvery || o.reportEvery > maxReportEvery:
+		return options{}, fmt.Errorf("-report-every must be %s to %s", minReportEvery, maxReportEvery)
+	// The relay refuses refresh >= max age at startup (PLAN.md §4.5), so
+	// printing such a pair would only give a relay that never starts.
+	case o.jwksRefresh <= 0 || o.jwksMaxAge > maxJWKSMaxAge || o.jwksRefresh >= o.jwksMaxAge:
+		return options{}, fmt.Errorf("want 0 < -jwks-refresh < -jwks-max-age <= %s", maxJWKSMaxAge)
 	}
 	return o, nil
 }
