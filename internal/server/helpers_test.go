@@ -285,6 +285,11 @@ func (g *gate) handler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, upstreamBody) // the relay reports a lost answer itself
 	case <-r.Context().Done():
+		// Returning would send an empty 200 that can still reach the relay
+		// after it gave up, since Go's transport keeps a response that races
+		// its cancellation; the relay would then forward it instead of
+		// failing the call.
+		panic(http.ErrAbortHandler)
 	}
 }
 

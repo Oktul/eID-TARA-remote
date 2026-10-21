@@ -1784,6 +1784,19 @@ calls equal to forwarded answers). The five checks pass, `-race` in the
 pinned builder without network. Round 3 changed only records: this entry
 put in order and §13 aligned with the stricter checks.
 
+**CI failure, caller-cancel test (2026-10-21).** CI's `go test -race` on
+`main` (2026-10-20) failed `TestForwardCallerCancelCancelsUpstream` with a
+nil error; it fails about 3 times in 20,000 runs in the pinned builder. A
+test bug, not a relay bug: the stub upstream returned once the relay hung
+up, so net/http sent an empty 200. Go's TLS client sends close_notify
+before closing, the stub answered on seeing it, and Go's transport keeps a
+response that races its own cancellation. Forward returned that complete,
+bounded upstream answer; with the caller gone, nobody received it, and only
+the log differs (the upstream status instead of `client_canceled`). Stalled stubs in `internal/forward` and the server tests' gate now
+abort the connection instead of answering. The other checks pass, but
+`govulncheck` now reports GO-2026-6809 (`crypto/x509`, fixed in Go
+1.27.3), which needs the toolchain patch of §12 (open).
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)

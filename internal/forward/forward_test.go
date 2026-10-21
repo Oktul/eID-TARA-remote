@@ -709,11 +709,20 @@ func inMemoryForwarder(t *testing.T, s *httptest.Server, timeout time.Duration) 
 	return f
 }
 
+// neverAnswer ends a stalled upstream handler once the relay has hung up,
+// without an answer. A handler that returns makes net/http send an empty
+// 200, and that answer can still win: Go's TLS client sends close_notify
+// before it closes the connection, the server answers on seeing it, and
+// Go's transport returns a response that races its own cancellation. The
+// forward would then succeed instead of failing (CI, 2026-10-20).
+func neverAnswer() { panic(http.ErrAbortHandler) }
+
 func TestForwardTimeout(t *testing.T) {
 	const timeout = 10 * time.Second
 	stallHeaders := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.ReadAll(r.Body) // lets the server notice the relay hanging up
 		<-r.Context().Done()
+		neverAnswer()
 	}
 	stallBody := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.ReadAll(r.Body) // lets the server notice the relay hanging up
@@ -809,6 +818,7 @@ func TestForwardCallerCancelCancelsUpstream(t *testing.T) {
 			_, _ = io.ReadAll(r.Body) // lets the server notice the relay hanging up
 			<-r.Context().Done()
 			upstreamErr <- r.Context().Err()
+			neverAnswer()
 		}))
 		f := inMemoryForwarder(t, s, time.Minute)
 		ctx, cancel := context.WithCancel(t.Context())
