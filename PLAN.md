@@ -1,20 +1,21 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-20: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
-and checked locally (§16). Phase 0 ran on 2026-10-16: every gate passed
-except PINNED, which needs a site with data residency (§14). Phase 3 is on
-the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA demo
-login went through a local relay on 2026-10-20, and TARA live waits for a
-live client and a registered IP. Every code change on `main` was reviewed
-by an agent that did not write it, with no open findings; the last moved
-the concurrency slot after the FIT check (SR-2, owner 2026-10-20). An
-end-to-end security review on 2026-10-20 refused everything it should;
-of its low and info findings, SR-4, SR-5, SR-8 and SR-9 are fixed, the
-owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT replay) is closed without
-a fix, since a spike showed Forge reuses FITs across calls (§14 Phase 4). Not tagged, pushed or
-published; no workflow has run, since the repository has no remote yet.
-Still open: the PINNED gate, source CI on GitHub and the Phase 2 release
-verifications._
+_Status 2026-10-21: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+and checked locally and in CI (§16). Phase 0 ran on 2026-10-16: every gate
+passed except PINNED, which needs a site with data residency (§14). Phase 3
+is on the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA
+demo login went through a local relay on 2026-10-20, and TARA live waits
+for a live client and a registered IP. Every code change on `main` was
+reviewed by an agent that did not write it, with no open findings; the
+owner merged the 2026-10-21 test fix and Go 1.27.3 toolchain without a
+Codex round (§16). An end-to-end security review on 2026-10-20 refused
+everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
+SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
+replay) is closed without a fix, since a spike showed Forge reuses FITs
+across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). `main` is
+pushed to a private GitHub repository, where `ci` runs on every push;
+nothing is tagged or published. Still open: the PINNED gate, the other
+acceptance runs of §13 and the Phase 2 release verifications._
 
 ## 1. What it is
 
@@ -1255,8 +1256,9 @@ promotes unreleased work from `main` into a patch release.
 
    Not covered by that review, still to do: TARA live (the allowlist and
    live client), the Caddy front end with its `remote_ip` filter and
-   inbound HTTP/2, load and soak with a JWKS outage, PINNED (§15 Q3),
-   and `govulncheck` on a release build.
+   inbound HTTP/2, load and the JWKS outage acceptance run (the soak
+   passed on 2026-10-21, §13), PINNED (§15 Q3), and `govulncheck` on a
+   release build.
 5. **Publish:** public repository, `LICENSE`, `SECURITY.md`, support policy,
    `v1.0.0`.
 
@@ -1802,6 +1804,14 @@ intermediate certificates, fixed in Go 1.27.3), reachable through
 were moved to Go 1.27.3 by hand on the development branch. The five checks
 then pass, `govulncheck` with no vulnerabilities and `-race` in the pinned
 Go 1.27.3 Linux builder with networking disabled.
+
+**Merge without a Codex round (owner, 2026-10-21).** The owner had `main`
+fast-forwarded to `claude/recursing-pascal-648621` without round 2.
+Claude sessions wrote `fe9f33c` (the test fix) and `5f4929f` (the
+toolchain); another Claude session read both diffs: the fix changes only
+test stubs and this plan, and no Go 1.27.2 pin remains outside this plan's
+history. On GitHub, `ci` passed every job on the branch; on `main` at
+`6ba9e43` it had failed only on GO-2026-6809.
 
 Primary references consulted for the review on 2026-10-15:
 
