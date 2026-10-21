@@ -1793,9 +1793,15 @@ before closing, the stub answered on seeing it, and Go's transport keeps a
 response that races its own cancellation. Forward returned that complete,
 bounded upstream answer; with the caller gone, nobody received it, and only
 the log differs (the upstream status instead of `client_canceled`). Stalled stubs in `internal/forward` and the server tests' gate now
-abort the connection instead of answering. The other checks pass, but
-`govulncheck` now reports GO-2026-6809 (`crypto/x509`, fixed in Go
-1.27.3), which needs the toolchain patch of §12 (open).
+abort the connection instead of answering. The other checks passed, but
+`govulncheck` reported GO-2026-6809 (`crypto/x509`, distrusts compromised
+intermediate certificates, fixed in Go 1.27.3), reachable through
+`server.Run` → `http.Server.Serve` → `x509.Certificate.Verify`. No
+`release/X.Y` line exists yet, so §12's automatic patch does not apply;
+`go.mod`'s toolchain and the `Dockerfile` builder (tag and index digest)
+were moved to Go 1.27.3 by hand on the development branch. The five checks
+then pass, `govulncheck` with no vulnerabilities and `-race` in the pinned
+Go 1.27.3 Linux builder with networking disabled.
 
 Primary references consulted for the review on 2026-10-15:
 
