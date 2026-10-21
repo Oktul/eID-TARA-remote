@@ -1037,7 +1037,24 @@ promotes unreleased work from `main` into a patch release.
     per `-report-every` (default 5 min) and container memory sampled
     alongside (`docker stats`). Each valid FIT must be forwarded and each
     bad one answered `invalid_token`, no health probe may fail, no
-    rejected request may reach the upstream, and memory must stay flat;
+    rejected request may reach the upstream, and memory must stay flat.
+    **Done 2026-10-21, 21 h 25 min instead of 72 h (owner's decisions,
+    2026-10-20 and 2026-10-21).** The owner ruled that a run on their
+    Windows PC counts as the official soak instead of a VM, and stopped it
+    early as clearly stable. Setup: relay image from `d66d822` and the
+    generator in two containers on one Docker network (no Windows port
+    forwarding), default JWKS settings, memory sampled every 5 minutes.
+    Result: 385,550 requests, 346,995 forwarded and 38,555 rejected, each
+    as its FIT required; no errors; 308,442 health probes, none failed,
+    slowest 13 ms; p99 110.6 ms in 244 of the 257 five-minute windows and
+    never above 114.7 ms; JWKS refreshed at 6, 12 and 18 h with no effect;
+    relay memory flat at 16–17.7 MiB after the first five minutes (16
+    processes); the relay logged nothing but its startup lines and the
+    requests. The generator printed `FAIL: 346996 upstream calls for
+    346995 forwarded answers` only because the stop (SIGINT) cancelled the
+    request in flight after it reached the upstream: the relay logged that
+    request as `client_canceled`. The upstream-call check should not run
+    on an interrupted run (open, generator only);
   - a JWKS outage (`-scenario jwks-outage`, added 2026-10-20): the test
     JWKS answers 503 while valid FITs go on at `-rate`, with the relay
     started with the printed `RELAY_JWKS_REFRESH=30s` and
@@ -1054,7 +1071,8 @@ promotes unreleased work from `main` into a patch release.
     failed on one `/readyz` probe timeout (1 s) while `/livez` passed;
     readiness is one atomic load, so that points at Docker Desktop's port
     forwarding, and the rerun passed with the slowest probe at 24 ms. These
-    runs check the tool; the acceptance results still need the VM;
+    runs check the tool; an acceptance run of the outage is still to be
+    recorded;
   - killing the process gives a healthy restart within 10 s;
   - SIGTERM lets in-flight requests finish;
   - an image scan (Trivy or Grype) shows only the Go binary and the Go
