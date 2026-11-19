@@ -7,8 +7,9 @@ endpoint from your static IP, and keeps the TARA credential on your side
 (`PLAN.md` §1, §10 O-8).
 
 > **Status.** Not yet released: no image is published, so the tag `0.1.0`
-> in the deploy files does not exist yet, and the admin-page parts below
-> arrive with the Forge integration (`PLAN.md` §14, Phase 3). The image name
+> in the deploy files does not exist yet. The admin-page parts below belong
+> to the Forge integration, built on the Forge app's main line since
+> 2026-10-18 (`PLAN.md` §14, Phase 3). The image name
 > is written `ghcr.io/OWNER/eid-forge-remote`, because the GitHub owner is
 > not decided yet (`PLAN.md` §15 Q6).
 
@@ -35,8 +36,8 @@ Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ─�
 ## 2. The configuration block
 
 For TARA, the Oktul eID SSO admin page shows a
-ready block of settings. Copy it unchanged into the deploy file (sections 4
-and 5). It looks like this (synthetic values):
+ready block of settings. Copy its four values unchanged into the deploy file
+(sections 4 and 5). It looks like this (synthetic values):
 
 ```sh
 RELAY_APP_ID=ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001
@@ -120,7 +121,10 @@ One trailing line ending is removed when the file is read.
 
 For TARA, also set `RELAY_UPSTREAM_CA_FILE` to a PEM file with the CA
 certificates that TARA's documentation names as trust anchors for its
-endpoints. The relay then trusts only those CAs for the upstream. When TARA
+endpoints:
+[TARA's technical specification, 5.1.2](https://e-gov.github.io/TARA-Doku/TechnicalSpecification#512-verifying-the-tls-connection-to-endpoints)
+lists the root certificates and where to download them. The relay then
+trusts only those CAs for the upstream. When TARA
 announces a CA change, update the file in time, or calls fail with
 `upstream_unreachable`.
 
@@ -457,9 +461,11 @@ refuses a skew over 1 minute.
 
 1. **Startup log.** A `starting` line with `version`, `go`, `upstream_proxy`,
    `jwks_proxy` and one field per setting. `RELAY_UPSTREAM_AUTH` shows
-   `set (from file)` or `not set`, and file settings show only `set`. A
-   configuration error logs `invalid configuration` with the `setting` and a
-   `reason`, never the value, and exits with code 2 (section 10.1). A
+   `set (from file)`, `not set`, or `set` for an inline value, which also
+   logs a `credential set inline` warning. `RELAY_UPSTREAM_CA_FILE` shows
+   only `set` or `system bundle`. A configuration error logs
+   `invalid configuration` with the `setting` and a `reason`, never the
+   value, and exits with code 2 (section 10.1). A
    warning `unknown setting` names a `RELAY_*` variable the relay does not
    know, usually a typo, or shows `RELAY_* (malformed name)` for a name that
    cannot be a setting name (section 10.1).
@@ -628,8 +634,8 @@ Two more `error` values have no code, because nobody receives an answer:
   connection without an answer.
 
 A request the HTTP server rejects before the relay sees it, such as a header
-block over 16 KiB, leaves no request line. Failures inside the HTTP server
-itself log only
+block over 16 KiB, logs a `request` line with `error` `http_server`
+(section 11). Failures inside the HTTP server itself log only
 `http server error` at `debug` level, without detail.
 
 ### 10.4 `auth_reason`

@@ -17,8 +17,9 @@ Token for this app, from the pinned site and Forge environment, for exactly
 tokens or the credential.
 
 **Status: not yet released.** No image is published, so the `0.1.0` tag in
-`deploy/` does not exist yet, and the admin-page parts below arrive with the
-Forge integration (Phase 3). `PLAN.md` §14 tracks the phases.
+`deploy/` does not exist yet. The admin-page parts below belong to the Forge
+integration (Phase 3), built on the Forge app's main line since 2026-10-18.
+`PLAN.md` §14 tracks the phases.
 
 ## Run it
 

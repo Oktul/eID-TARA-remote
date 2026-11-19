@@ -339,7 +339,9 @@ is 55 s. The relay depends on that lifetime only through the 5-minute cap.
 - `Host` becomes the upstream host. Only `Content-Type` and `Accept` pass,
   a fixed allowlist; `Authorization`, hop-by-hop headers, `x-forge-oauth-*`,
   `x-b3-*`, idempotency headers and everything else are dropped. Headers
-  named by `Connection` are removed.
+  named by `Connection` are removed. The relay's HTTP client adds
+  `Content-Length` and its own `User-Agent`, Go's default, never the
+  caller's.
 - The configured credential header is set last, so a caller cannot override
   it. The relay adds no `X-Forwarded-For`.
 
@@ -425,7 +427,7 @@ old" message.
 Environment variables, read and checked once at startup, before the listener
 opens. The admin page writes `RELAY_APP_ID`, `RELAY_ENVIRONMENT_ID`,
 `RELAY_CLOUD_IDS` and `RELAY_UPSTREAM_URL`; the customer adds
-only the credential.
+only the credential and TARA's CA file.
 
 | Setting                                     | Required | Default                             | Purpose                                                                 |
 | ------------------------------------------- | -------- | ----------------------------------- | ----------------------------------------------------------------------- |

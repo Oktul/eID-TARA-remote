@@ -379,7 +379,9 @@ Claim names checked against Atlassian's _Forge Remote essentials_ on 2026-10-15.
   needs no other (owner, 2026-10-16; `RELAY_REQUEST_HEADERS` was removed
   before the first release). `Authorization`, hop-by-hop headers,
   `x-forge-oauth-*`, `x-b3-*`, idempotency headers and everything else are
-  dropped, and so is an allowed header that `Connection` names. The
+  dropped, and so is an allowed header that `Connection` names. The relay's
+  HTTP client adds `Content-Length` and its own `User-Agent`, Go's default,
+  never the caller's (existing behaviour, written down 2026-11-19). The
   configured credential header is set last, so a caller cannot override it.
   The relay adds no `X-Forwarded-For`.
   The credential setting may supply `Authorization`, but cannot supply
@@ -1839,6 +1841,45 @@ round, as on 2026-10-21, the owner had `main` fast-forwarded to
 other agent read it: it changes the `go.mod` toolchain line, the
 `Dockerfile` builder line and this plan, which is the diff §12 lets
 `go-patch.yml` ship unreviewed on a release line.
+
+**Documentation review (2026-11-19, owner's request), branch
+`claude/docs-mismatches`, awaiting Codex's review.** A review of `main`
+compared the documents with the code. Settings, protocol, log strings and
+deploy hardening matched; these did not, and are corrected with no code
+change:
+
+- `docs/SETUP.md` 10.3 still said a request the HTTP server refuses leaves
+  no log line; since SR-9 it logs one (§10), as its section 11 says.
+- `docs/PROTOCOL.md` §8 said the customer adds only the credential; §8 here
+  and `docs/SETUP.md` say the credential and TARA's CA file.
+  `docs/SETUP.md` 3.2 now links TARA's specification 5.1.2, which names the
+  root certificates (read 2026-11-19).
+- `README.md` and `docs/SETUP.md` said the admin-page parts "arrive with"
+  Phase 3, which is on the Forge app's main line since 2026-10-18 (§14).
+- `docs/SETUP.md` 8 omitted the startup summary's `set` (inline credential)
+  and `system bundle` values, and section 2 said to copy the block
+  unchanged where section 4 has its four values replaced one by one.
+- §5 and `docs/PROTOCOL.md` 6.2 now state that the relay's HTTP client
+  sends Go's own `User-Agent`, which the tests already pin.
+
+Left for the owner, not changed:
+
+- Watchtower, which §12 and `docs/SETUP.md` 9 name for automatic patches
+  on Docker, was archived by its maintainers (GitHub, pushed last
+  2025-12-17; read 2026-11-19). It needs a replacement, such as a
+  scheduled `docker compose pull && docker compose up -d`.
+- The deploy files pin `0.1.0` while §14 publishes `v1.0.0`.
+- Nothing in `docs/SETUP.md` 8 detects a Caddy started without the IP
+  filter or an inbound connection cap (SR-3), and no step checks the
+  credential, CA file and registered IP before the first login.
+- No update path for the Caddy pin in `deploy/compose.yaml`, cosign or the
+  tools in `.github/scripts/lib.sh`; Dependabot covers actions only (§12).
+- Before the first release: `release.yml`'s publish path has never run;
+  the repository has no tag or branch rules, so any `vX.Y.Z` tag push is
+  signed under the documented identity; Actions may not create pull
+  requests and Dependabot alerts are off (§12's repository settings); and
+  `release/X.Y` must be created at the tag's commit, or `go-patch.yml`
+  finds no line and stays green without patching.
 
 Primary references consulted for the review on 2026-10-15:
 
