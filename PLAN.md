@@ -1,6 +1,6 @@
 # eID Forge Remote — Plan
 
-_Status 2026-10-21: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+_Status 2026-11-19: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
 and checked locally and in CI (§16). Phase 0 ran on 2026-10-16: every gate
 passed except PINNED, which needs a site with data residency (§14). Phase 3
 is on the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA
@@ -12,7 +12,8 @@ Codex round (§16). An end-to-end security review on 2026-10-20 refused
 everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
-across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). `main` is
+across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). The
+toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `main` is
 pushed to a private GitHub repository, where `ci` runs on every push;
 nothing is tagged or published. Still open: the PINNED gate, the other
 acceptance runs of §13 and the Phase 2 release verifications._
@@ -1812,6 +1813,23 @@ toolchain); another Claude session read both diffs: the fix changes only
 test stubs and this plan, and no Go 1.27.2 pin remains outside this plan's
 history. On GitHub, `ci` passed every job on the branch; on `main` at
 `6ba9e43` it had failed only on GO-2026-6809.
+
+**Go 1.27.4 (2026-11-19), branch `claude/go-1.27.4`.** The weekly scan of
+`main` failed on 2026-11-16 and opened `weekly govulncheck: findings`:
+`govulncheck` reports GO-2026-6859 (`net/http`: an HTTP/1 server can crash
+when a handler reads a `MaxBytesReader` body while it writes the response
+header; fixed in Go 1.27.4). The relay reads the request body through
+`MaxBytesReader` (`readBody`), but its handler reads the body and sets
+headers on one goroutine, one after the other, so the race has no second
+party here; that is read from the code, not tested. The finding still fails
+`ci` on every push and would fail a release's checks. No `release/X.Y` line
+exists, so §12's automatic patch does not apply, as on 2026-10-21:
+`go.mod`'s toolchain and the `Dockerfile` builder (tag and index digest)
+were moved to Go 1.27.4 by hand. On the change: `gofmt`, `go vet`,
+`staticcheck` (2026.2.2), `go test ./...` on Windows and `govulncheck`
+(v1.9.0, no vulnerabilities) pass; `go test -race ./...` passes in the
+pinned Go 1.27.4 Linux builder; the linux/amd64 image builds and passes
+`.github/scripts/smoke.sh`. No source, test, workflow or protocol change.
 
 Primary references consulted for the review on 2026-10-15:
 
