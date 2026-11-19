@@ -8,7 +8,8 @@ demo login went through a local relay on 2026-10-20, and TARA live waits
 for a live client and a registered IP. Every code change on `main` was
 reviewed by an agent that did not write it, with no open findings; the
 owner merged the 2026-10-21 test fix and Go 1.27.3 toolchain without a
-Codex round (§16). An end-to-end security review on 2026-10-20 refused
+Codex round, and the 2026-11-19 Go 1.27.4 toolchain with no second
+agent's review (§16). An end-to-end security review on 2026-10-20 refused
 everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
@@ -1830,6 +1831,14 @@ were moved to Go 1.27.4 by hand. On the change: `gofmt`, `go vet`,
 (v1.9.0, no vulnerabilities) pass; `go test -race ./...` passes in the
 pinned Go 1.27.4 Linux builder; the linux/amd64 image builds and passes
 `.github/scripts/smoke.sh`. No source, test, workflow or protocol change.
+
+**Merge without a review round (owner, 2026-11-19: "Merge and push").**
+Asked whether to merge the Go 1.27.4 commit (`08999e3`) without a Codex
+round, as on 2026-10-21, the owner had `main` fast-forwarded to
+`claude/go-1.27.4` and pushed. A Claude session wrote the commit and no
+other agent read it: it changes the `go.mod` toolchain line, the
+`Dockerfile` builder line and this plan, which is the diff §12 lets
+`go-patch.yml` ship unreviewed on a release line.
 
 Primary references consulted for the review on 2026-10-15:
 
