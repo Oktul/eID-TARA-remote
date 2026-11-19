@@ -488,6 +488,18 @@ refuses a skew over 1 minute.
 4. **End to end.** Enter the relay's public URL on the admin page. Its health
    check calls `/relay/v1/info` through Forge, your proxy and the relay, and
    shows the relay version and whether a credential is set.
+5. **From outside.** From an address outside Atlassian's ranges, such as
+   your own workstation, ask the public name for `/livez`:
+
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' https://relay.example.com/livez
+   ```
+
+   With the supplied Caddyfile this prints `000`: the IP filter closes the
+   connection without an answer (section 6.4). Another proxy may answer with
+   its own refusal, such as `403`. `200` means the filter is off and the
+   relay is open to every address. The FIT still guards the token route,
+   but turn the filter on before production use (section 6.3, item 2).
 
 ## 9. Upgrades
 

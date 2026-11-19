@@ -1869,9 +1869,13 @@ Left for the owner, not changed:
   2025-12-17; read 2026-11-19). It needs a replacement, such as a
   scheduled `docker compose pull && docker compose up -d`.
 - The deploy files pin `0.1.0` while §14 publishes `v1.0.0`.
-- Nothing in `docs/SETUP.md` 8 detects a Caddy started without the IP
-  filter or an inbound connection cap (SR-3), and no step checks the
-  credential, CA file and registered IP before the first login.
+- Nothing in `docs/SETUP.md` 8 detects a missing inbound connection cap
+  (SR-3), and no step checks the credential, CA file and registered IP
+  before the first login. A missing IP filter is now caught: step 5 asks
+  for `/livez` from outside Atlassian's ranges and expects no answer. With
+  the pinned Caddy 2.11.7 and the Caddyfile's `abort` matcher, `curl` over
+  HTTP/1.1 printed `000` with the filter and `200` without it (local run,
+  2026-11-19; HTTP/2 not tried).
 - No update path for the Caddy pin in `deploy/compose.yaml`, cosign or the
   tools in `.github/scripts/lib.sh`; Dependabot covers actions only (§12).
 - Before the first release: `release.yml`'s publish path has never run;
