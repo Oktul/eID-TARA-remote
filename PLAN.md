@@ -8,8 +8,8 @@ demo login went through a local relay on 2026-10-20, and TARA live waits
 for a live client and a registered IP. Every code change on `main` was
 reviewed by an agent that did not write it, with no open findings; the
 owner merged the 2026-10-21 test fix and Go 1.27.3 toolchain without a
-Codex round, and the 2026-11-19 Go 1.27.4 toolchain with no second
-agent's review (§16). An end-to-end security review on 2026-10-20 refused
+Codex round, and the 2026-11-19 Go 1.27.4 toolchain and documentation
+corrections with no second agent's review (§16). An end-to-end security review on 2026-10-20 refused
 everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
@@ -1843,7 +1843,7 @@ other agent read it: it changes the `go.mod` toolchain line, the
 `go-patch.yml` ship unreviewed on a release line.
 
 **Documentation review (2026-11-19, owner's request), branch
-`claude/docs-mismatches`, awaiting Codex's review.** A review of `main`
+`claude/docs-mismatches`.** A review of `main`
 compared the documents with the code. Settings, protocol, log strings and
 deploy hardening matched; these did not, and are corrected with no code
 change:
@@ -1884,6 +1884,16 @@ Left for the owner, not changed:
   requests and Dependabot alerts are off (§12's repository settings); and
   `release/X.Y` must be created at the tag's commit, or `go-patch.yml`
   finds no line and stays green without patching.
+
+**Merge without a review round (owner, 2026-11-19: "merge and push").**
+Asked whether Codex should read `claude/docs-mismatches` first, the owner
+had `main` fast-forwarded to it and pushed. A Claude session wrote both
+commits (`55d0c25`, the corrections above, and `a5e0d1e`, the outside check
+in `docs/SETUP.md` 8) and no other agent read them. Neither changes code,
+tests or workflows; `55d0c25` adds the `User-Agent` sentence to §5 and
+`docs/PROTOCOL.md` 6.2, which describes behaviour the tests already pin.
+The owner also had `weekly govulncheck: findings` closed, since `main` is
+clean on Go 1.27.4, and the merged branches deleted.
 
 Primary references consulted for the review on 2026-10-15:
 
