@@ -9,8 +9,8 @@ for a live client and a registered IP. Every code change on `main` was
 reviewed by an agent that did not write it, with no open findings; the
 owner merged the 2026-10-21 test fix and Go 1.27.3 toolchain without a
 Codex round, and the 2026-11-19 Go 1.27.4 toolchain and documentation
-corrections and the 2026-11-24 `LICENSE`, `SECURITY.md` and licence copy in
-the image with no second agent's review (§16). An end-to-end security review on 2026-10-20 refused
+corrections and the 2026-11-24 `LICENSE`, `SECURITY.md`, licence copy in
+the image and plan hash remap with no second agent's review (§16). An end-to-end security review on 2026-10-20 refused
 everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
@@ -1988,6 +1988,11 @@ still write and review as `AGENTS.md` describes; commits no longer name
 them in trailers. On the new repository, CI's gitleaks scan of the whole
 history passed, and a search of every file version found no secret,
 personal address, real ID or internal host.
+
+**Merge without a review round (owner, 2026-11-24: "merge and push").**
+Asked whether Codex should review the hash remap first, the owner had
+`main` fast-forwarded to `claude/rewrite-hashes` and pushed. A Claude
+session wrote it and no other agent read it. It changes only this plan.
 
 Primary references consulted for the review on 2026-10-15:
 
