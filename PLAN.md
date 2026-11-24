@@ -1,6 +1,6 @@
 # eID Forge Remote — Plan
 
-_Status 2026-11-19: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+_Status 2026-11-24: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
 and checked locally and in CI (§16). Phase 0 ran on 2026-10-16: every gate
 passed except PINNED, which needs a site with data residency (§14). Phase 3
 is on the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA
@@ -14,7 +14,8 @@ everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
 across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). The
-toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `main` is
+toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
+`SECURITY.md` are in since 2026-11-24 (§16). `main` is
 pushed to a private GitHub repository, where `ci` runs on every push;
 nothing is tagged or published. Still open: the PINNED gate, the other
 acceptance runs of §13 and the Phase 2 release verifications._
@@ -716,15 +717,17 @@ docs/                 SETUP.md, PROTOCOL.md (§4, for implementers), SUPPORT.md
 .github/scripts/      the workflows' shell steps; main's copy runs against every release line
 .github/dependabot.yml
 Dockerfile, .dockerignore, go.mod, README.md, AGENTS.md, CONTRIBUTING.md, PLAN.md   (no go.sum: there are no modules)
+LICENSE, SECURITY.md
 ```
 
 The module path is `eid-forge-remote` until the GitHub owner is chosen
 (§15 Q6); nothing imports the module from outside, so the path can change
 then (2026-10-15).
 
-`LICENSE` (EUPL-1.2) and `SECURITY.md` are added when the repository is
-published (D3). From the first commit, nothing goes in that could not be
-public: no secrets, keys, customer names or internal hostnames.
+`LICENSE` (EUPL-1.2) and `SECURITY.md` were added on 2026-11-24, ahead of
+publication (D3; owner's request, §16). From the first commit, nothing goes
+in that could not be public: no secrets, keys, customer names or internal
+hostnames.
 
 ## 12. CI and releases
 
@@ -1263,8 +1266,8 @@ promotes unreleased work from `main` into a patch release.
    inbound HTTP/2, load and the JWKS outage acceptance run (the soak
    passed on 2026-10-21, §13), PINNED (§15 Q3), and `govulncheck` on a
    release build.
-5. **Publish:** public repository, `LICENSE`, `SECURITY.md`, support policy,
-   `v1.0.0`.
+5. **Publish:** public repository, `LICENSE` and `SECURITY.md` (both added
+   2026-11-24, §16), support policy, `v1.0.0`.
 
 ## 15. Open questions
 
@@ -1894,6 +1897,37 @@ tests or workflows; `55d0c25` adds the `User-Agent` sentence to §5 and
 `docs/PROTOCOL.md` 6.2, which describes behaviour the tests already pin.
 The owner also had `weekly govulncheck: findings` closed, since `main` is
 clean on Go 1.27.4, and the merged branches deleted.
+
+**`LICENSE` and `SECURITY.md` (2026-11-24, owner: "add LICENSE and
+SECURITY.md"), branch `claude/license-security`.** §11 planned both for
+publication; the owner asked for them while the repository is still private.
+
+- `LICENSE` is the European Commission's English plain text of the EUPL
+  v. 1.2, unchanged: `EUPL-1.2 EN.txt` from `joinup.ec.europa.eu`, 13,827
+  bytes, SHA-256 `6fc9e709…b4d1e665`, fetched 2026-11-24. Its words match
+  SPDX's `EUPL-1.2` text; the two differ only in dashes and spacing.
+- `SECURITY.md` takes reports through GitHub's private vulnerability
+  reporting, so it commits no contact address and needs no GitHub owner
+  name (§15 Q6). It promises no response time. The fix and release-note
+  rules it cites are those of `docs/SUPPORT.md`.
+- `README.md`, `CONTRIBUTING.md` and `docs/SUPPORT.md` no longer say the two
+  files come at publication, and link to them.
+
+No code, test or workflow changes. `gofmt`, `go vet`, `staticcheck`,
+`go test` and `govulncheck` (no vulnerabilities) pass on Windows, and
+`go test -race ./...` in the pinned Go 1.27.4 builder.
+
+Left for the owner, not changed:
+
+- GitHub offers private vulnerability reporting for public repositories.
+  Enable it when the repository is published; until then the first route in
+  `SECURITY.md` does not exist.
+- `README.md` names Oktul as the copyright holder, after the app's name. The
+  legal name is the owner's to confirm.
+- The image holds no copy of the licence, only the
+  `org.opencontainers.image.licenses` label; Article 5 of the EUPL asks a
+  licensee to pass a copy on with every copy of the work. Adding it changes
+  the `Dockerfile` and `.dockerignore`.
 
 Primary references consulted for the review on 2026-10-15:
 

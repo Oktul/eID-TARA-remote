@@ -101,5 +101,6 @@ JWKS and upstream and prints the settings to start the relay with
 
 ## License and security
 
-EUPL-1.2. `LICENSE` and `SECURITY.md` are added at publication (`PLAN.md`
-D3, §11). Report vulnerabilities privately, never in a public issue.
+Copyright (c) 2026 Oktul. Licensed under the EUPL-1.2; see
+[`LICENSE`](LICENSE). Report vulnerabilities privately as
+[`SECURITY.md`](SECURITY.md) describes, never in a public issue.

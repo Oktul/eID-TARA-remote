@@ -82,5 +82,5 @@ instructions for customers (`PLAN.md` §4.6).
 
 ## Security issues
 
-Report vulnerabilities privately, never in a public issue. `SECURITY.md`,
-added when the repository is published, says how.
+Report vulnerabilities privately, never in a public issue.
+[`SECURITY.md`](../SECURITY.md) says how.
