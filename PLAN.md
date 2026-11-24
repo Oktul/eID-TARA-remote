@@ -16,7 +16,8 @@ SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
 across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). The
 toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
-`SECURITY.md` are in since 2026-11-24 (§16). `main` is
+`SECURITY.md` are in since 2026-11-24, and the image carries the licence
+text (§7, §16). `main` is
 pushed to a private GitHub repository, where `ci` runs on every push;
 nothing is tagged or published. Still open: the PINNED gate, the other
 acceptance runs of §13 and the Phase 2 release verifications._
@@ -518,6 +519,10 @@ customer who wants TLS on the internal hop adds it with a sidecar or mesh.
     `USER 65532:65532`, no shell or package manager (S-2, S-3); measured
     18.5 MB unpacked on 2026-10-15, since the binary keeps its symbols for
     `govulncheck -mode=binary`;
+  - `/LICENSE` is the repository's `LICENSE`: Article 5 of the EUPL asks for
+    a copy of the licence with every copy of the work, and an image is
+    pulled without the repository. The smoke test checks its SHA-256
+    (owner, 2026-11-24);
   - `scratch` rather than distroless leaves one base image to track instead
     of two, and the CA bundle refreshes with every toolchain rebuild.
 - **Health check:** `relay healthcheck` calls `/livez` (or `/readyz` with
@@ -1935,6 +1940,27 @@ Asked whether to merge `claude/license-security` or have Codex review it
 first, the owner had `main` fast-forwarded to it and pushed. A Claude
 session wrote `f09ce44` and no other agent read it. It changes no code,
 tests or workflows. The three points above stay open.
+
+**Licence copy in the image (owner, 2026-11-24: "add the licence copy to
+the image"), branch `claude/licence-in-image`.** This closes the third
+point above. The `Dockerfile` copies `LICENSE` to `/LICENSE` in the final
+stage, `.dockerignore` admits the file, and §7 states the rule.
+`.github/scripts/smoke.sh` reads `/LICENSE` out of the container and
+compares its SHA-256 with the Commission's text: the workflows check the
+scripts out without the source, so the script holds the digest. No Go code,
+workflow or protocol change.
+
+Checks: the smoke test passes on a linux/amd64 image built from this branch,
+fails with `the image has no /LICENSE` on an image built from `main`'s
+`Dockerfile`, and fails with `not the EUPL v. 1.2 text` on an image with
+another file at `/LICENSE`. `gofmt`, `go vet`, `staticcheck`, `go test` and
+`govulncheck` (no vulnerabilities) pass on Windows, and `go test -race ./...`
+in the pinned Go 1.27.4 builder.
+
+Left for the owner, not changed: the binary holds Go's runtime and standard
+library, whose BSD licence asks that binary redistributions reproduce its
+notice, and the image does not carry it. The builder has the text at
+`/usr/local/go/LICENSE`.
 
 Primary references consulted for the review on 2026-10-15:
 

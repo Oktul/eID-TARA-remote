@@ -2,7 +2,8 @@
 # Smoke-tests a relay image the way customers run it (PLAN.md §12 ci.yml):
 # read-only root, non-root user, no capabilities (§6 R-10, §7), live while
 # the JWKS is unreachable but not ready (§4.5), and a bad setting exits 2
-# naming the setting without its value (§6 R-13, §8).
+# naming the setting without its value (§6 R-13, §8). Also checks that the
+# image carries the licence text (§7).
 # Usage: smoke.sh <image>
 set -euo pipefail
 # shellcheck source=.github/scripts/lib.sh
@@ -12,6 +13,10 @@ image=${1:?usage: smoke.sh <image>}
 
 readonly user=65532:65532
 readonly start_attempts=30 # one per second while the container starts
+# The SHA-256 of the Commission's EUPL v. 1.2 text, which is LICENSE in the
+# repository. The scripts are checked out without the source, so the image
+# is compared with this digest, not with the file.
+readonly licence_sha256=6fc9e709ccbfe0d77fbffa2427a983282be2eb88e47b1cdb49f21a83b4d1e665
 
 hardening=(--read-only --user "$user" --cap-drop ALL --security-opt no-new-privileges)
 # Synthetic values only. ".invalid" never resolves (RFC 2606), so the relay
@@ -57,6 +62,11 @@ status=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "$base/readyz")
 # claim from the image.
 ids=$(docker top "$container" -o pid,uid,gid | awk 'NR > 1 { print $2 ":" $3 }' | sort -u)
 [[ $ids == "$user" ]] || die "the container runs as ${ids//$'\n'/ }, want $user"
+
+# The image has no shell, so docker cp reads the file; it writes a tar stream.
+sum=$(docker cp "$container:/LICENSE" - | tar --extract --to-stdout | sha256sum | cut -d ' ' -f 1) ||
+	die "the image has no /LICENSE (PLAN.md §7)"
+[[ $sum == "$licence_sha256" ]] || die "/LICENSE in the image is not the EUPL v. 1.2 text (PLAN.md §7)"
 
 docker exec "$container" /relay healthcheck || die "/relay healthcheck failed while /livez is up"
 rc=0

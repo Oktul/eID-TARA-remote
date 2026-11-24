@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: EUPL-1.2
 #
-# An allowlist: the build needs only go.mod and the Go packages. Everything
-# else, such as .git, .env, keys or deploy/secrets, never reaches a builder
-# or an image layer (PLAN.md §11).
+# An allowlist: the build needs only go.mod, the Go packages and the licence
+# text. Everything else, such as .git, .env, keys or deploy/secrets, never
+# reaches a builder or an image layer (PLAN.md §11).
 *
 !go.mod
+!LICENSE
 !cmd/
 !internal/
 **/*_test.go

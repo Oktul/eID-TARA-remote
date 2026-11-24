@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: EUPL-1.2
 
-# The relay image (PLAN.md §7): one static binary and a CA bundle on scratch,
-# with no shell or package manager (S-2, S-3).
+# The relay image (PLAN.md §7): one static binary, a CA bundle and the licence
+# text on scratch, with no shell or package manager (S-2, S-3).
 
 ARG VERSION=0.0.0-dev
 
@@ -35,6 +35,9 @@ LABEL org.opencontainers.image.title="eid-forge-remote" \
 # rebuild (PLAN.md §7, §12).
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/relay /relay
+# Article 5 of the EUPL asks for a copy of the licence with every copy of the
+# work, and an image is pulled without the repository (PLAN.md §7).
+COPY LICENSE /LICENSE
 USER 65532:65532
 # A soft GC target below the 128 MB container limit (PLAN.md §6 R-4).
 ENV GOMEMLIMIT=96MiB
