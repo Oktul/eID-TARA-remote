@@ -17,10 +17,11 @@ replay) is closed without a fix, since a spike showed Forge reuses FITs
 across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). The
 toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
 `SECURITY.md` are in since 2026-11-24, and the image carries the licence
-text (§7, §16). `main` is
-pushed to a private GitHub repository, where `ci` runs on every push;
-nothing is tagged or published. Still open: the PINNED gate, the other
-acceptance runs of §13 and the Phase 2 release verifications._
+text (§7, §16). `main` is in the private repository
+`Oktul/eID-TARA-remote` since 2026-11-24, with its history rewritten to one
+author (§16), and `ci` runs on every push; nothing is tagged or published.
+Still open: the PINNED gate, the other acceptance runs of §13, the image
+name (§15 Q6) and the Phase 2 release verifications._
 
 ## 1. What it is
 
@@ -726,7 +727,7 @@ Dockerfile, .dockerignore, go.mod, README.md, AGENTS.md, CONTRIBUTING.md, PLAN.m
 LICENSE, SECURITY.md
 ```
 
-The module path is `eid-forge-remote` until the GitHub owner is chosen
+The module path is `eid-forge-remote` until the image name is settled
 (§15 Q6); nothing imports the module from outside, so the path can change
 then (2026-10-15).
 
@@ -1055,7 +1056,7 @@ promotes unreleased work from `main` into a patch release.
     **Done 2026-10-21, 21 h 25 min instead of 72 h (owner's decisions,
     2026-10-20 and 2026-10-21).** The owner ruled that a run on their
     Windows PC counts as the official soak instead of a VM, and stopped it
-    early as clearly stable. Setup: relay image from `d66d822` and the
+    early as clearly stable. Setup: relay image from `d55b4e4` and the
     generator in two containers on one Docker network (no Windows port
     forwarding), default JWKS settings, memory sampled every 5 minutes.
     Result: 385,550 requests, 346,995 forwarded and 38,555 rejected, each
@@ -1289,7 +1290,13 @@ promotes unreleased work from `main` into a patch release.
    The relay does not forward JWKS, profile or other-provider calls.
 5. A customer with no host or static IP cannot use TARA production in v1
    (D1). Revisit if customers ask for it.
-6. The publication date, and the GitHub owner for the image name.
+6. The publication date and the image name. The GitHub owner is decided
+   (owner, 2026-11-24): the repository is `Oktul/eID-TARA-remote`.
+   `lib.sh` names the image after the repository,
+   `ghcr.io/oktul/eid-tara-remote`, but the deploy files, the module path
+   and `docs/SETUP.md` still say `eid-forge-remote`, and the signature check
+   in `docs/SETUP.md` 9 expects `OWNER/eID-forge-remote`. One side changes
+   before the first release.
 7. Decided (owner, 2026-10-16, on the recommendation to keep it simple and
    secure): `RELAY_JWKS_MAX_AGE` is measured on the monotonic clock, not
    wall-clock time. A removed key is trusted until the next successful
@@ -1381,7 +1388,7 @@ the Go checks remain mandatory once the Phase 0/1 source and tools exist.
 
 **Implementation record (2026-10-16, D10).** Phase 1 was written on
 `claude/phase-1-relay-core` and Phase 2 on `claude/phase-2-packaging`
-(both merged into `main`, branches deleted 2026-10-17); Phase 2 forks from Phase 1 at `5f99afc`, before Codex's review, and carries
+(both merged into `main`, branches deleted 2026-10-17); Phase 2 forks from Phase 1 at `ec2357f`, before Codex's review, and carries
 Codex's Phase 1 fixes as its own commits. Claude agents wrote both phases;
 other Claude agents reviewed them in three rounds before Codex's round
 (`AGENTS.md`), the third only of the second's fixes, each finding checked by
@@ -1598,10 +1605,10 @@ history sanitization or an explicit exception needs the owner's decision
 before publication. The current tree contains no such label.
 
 **Claude review, round 3, Phase 0 changes (2026-10-16).** Reviewed the
-whole branch on top of `claude/phase-2-packaging` (`6aeb3e5` to `12442f8`;
+whole branch on top of `claude/phase-2-packaging` (`153e94a` to `d9a7371`;
 hashes after the rewrite below), Codex's two commits in particular. Both
-stand: `89f9681` removes the test-site label, which `AGENTS.md` forbids as
-an internal hostname, and `12442f8` makes D7's rationale and `docs/PROTOCOL.md` match §14 without
+stand: `70a5ca9` removes the test-site label, which `AGENTS.md` forbids as
+an internal hostname, and `d9a7371` makes D7's rationale and `docs/PROTOCOL.md` match §14 without
 changing the v1 contract. No new findings and no disagreements.
 
 - Checks on the tip: `gofmt -w .` (no changes), `go vet`, `staticcheck`
@@ -1616,7 +1623,7 @@ changing the v1 contract. No new findings and no disagreements.
 - Branches: `codex/review-phase-0-results` contains `main`, the packaging
   line, both Phase 0 branches and `codex/fix-code-conventions`.
   `claude/phase-1-relay-core` is superseded (its four Codex fixes are
-  carried as `a7eba7a`, `1acc9de`, `262718c` and `4afad4e`), and
+  carried as `0de8b4e`, `a009555`, `9ca9e8d` and `8553f75`), and
   `claude/wip-backup` is an old work-in-progress backup whose content has
   landed. Neither was deleted without the owner's word; the owner had both
   deleted on 2026-10-17.
@@ -1624,9 +1631,9 @@ changing the v1 contract. No new findings and no disagreements.
 **Owner decision (2026-10-16): rewrite the unpushed line once, then
 fast-forward `main`.** The owner allowed Claude a one-time exception to
 `AGENTS.md`'s no-rewrite rule. "Record the Phase 0 gate results" was
-replayed on `ece6552` with Codex's wording in place of the label (now
-`f466047`), and the four later commits were cherry-picked unchanged with
-their messages and authors (`1f57c08`, `89f9681`, `12442f8`, `ac0cf17`).
+replayed on `2d55c3b` with Codex's wording in place of the label (now
+`a8b9f2a`), and the four later commits were cherry-picked unchanged with
+their messages and authors (`76e588e`, `70a5ca9`, `d9a7371`, `627dae0`).
 The final tree is identical to the old tip's, and no commit from `main` to
 the tip contains the label; Codex's sanitizing commit now changes only §16.
 The old commits stay in the local reflog until Git prunes them; nothing
@@ -1689,7 +1696,7 @@ no Caddy front end, no soak, `govulncheck` not run (no network).
     reuses FITs, and SR-7 was decided not to be built (owner). Details and what the review did not cover: §14, Phase 4.
 
 **Codex review, round 2, security hardening (2026-10-20).** Reviewed
-`main...claude/security-review-hardening` through `1d8f418` against this
+`main...claude/security-review-hardening` through `84c59f7` against this
 plan and the contributing checklist. Fixes live on
 `codex/review-security-review-hardening`; Claude's commits are unchanged.
 
@@ -1742,10 +1749,10 @@ do not check `Content-Type` (SR-7). A test now pins SR-5's startup line.
 
 **Merge without a further Codex round (owner, 2026-10-20: "merge it
 without another codex round").** Codex reviewed the branch through
-`9f2a0f7`. The three later commits change no relay behaviour: `d22ec8b`
-is this plan only, `02db878` docs and comments in `internal/fit/verify.go`,
-and `480cb74` docs plus a test that pins the SR-5 startup error reviewed
-in `6b8f64c` and `35a85d7`. `AGENTS.md` sends only behaviour changes back
+`70ef315`. The three later commits change no relay behaviour: `b845c94`
+is this plan only, `ec89262` docs and comments in `internal/fit/verify.go`,
+and `fc6b63b` docs plus a test that pins the SR-5 startup error reviewed
+in `ef61a91` and `1425571`. `AGENTS.md` sends only behaviour changes back
 to round 2, so the owner had `main` fast-forwarded to
 `claude/round3-security-review-hardening` with these commits reviewed by
 Claude alone.
@@ -1791,7 +1798,7 @@ this round. Checked against the relay itself: `writeError` sends exactly
 the `/readyz` answer the stricter probe requires (`server.go`), and every
 `full` request that reaches the upstream returns a forwarded answer, so the
 shared upstream-call check cannot fail a healthy `full` run. A live run of
-the branch's generator (`e8f3051`) against the relay image in Docker
+the branch's generator (`5ca4e50`) against the relay image in Docker
 Desktop passed: a 1-minute soak (300 requests, 30 rejected as sent, p99
 172 ms) and the outage (`/readyz 503 not_ready` 187 times, never another
 probe failure, keys expired at 2m0s, forwarding back at 3m33s, upstream
@@ -1820,11 +1827,11 @@ Go 1.27.3 Linux builder with networking disabled.
 
 **Merge without a Codex round (owner, 2026-10-21).** The owner had `main`
 fast-forwarded to `claude/recursing-pascal-648621` without round 2.
-Claude sessions wrote `fe9f33c` (the test fix) and `5f4929f` (the
+Claude sessions wrote `8088bd4` (the test fix) and `761d190` (the
 toolchain); another Claude session read both diffs: the fix changes only
 test stubs and this plan, and no Go 1.27.2 pin remains outside this plan's
 history. On GitHub, `ci` passed every job on the branch; on `main` at
-`6ba9e43` it had failed only on GO-2026-6809.
+`bf1cb04` it had failed only on GO-2026-6809.
 
 **Go 1.27.4 (2026-11-19), branch `claude/go-1.27.4`.** The weekly scan of
 `main` failed on 2026-11-16 and opened `weekly govulncheck: findings`:
@@ -1844,7 +1851,7 @@ pinned Go 1.27.4 Linux builder; the linux/amd64 image builds and passes
 `.github/scripts/smoke.sh`. No source, test, workflow or protocol change.
 
 **Merge without a review round (owner, 2026-11-19: "Merge and push").**
-Asked whether to merge the Go 1.27.4 commit (`08999e3`) without a Codex
+Asked whether to merge the Go 1.27.4 commit (`86b81a0`) without a Codex
 round, as on 2026-10-21, the owner had `main` fast-forwarded to
 `claude/go-1.27.4` and pushed. A Claude session wrote the commit and no
 other agent read it: it changes the `go.mod` toolchain line, the
@@ -1897,9 +1904,9 @@ Left for the owner, not changed:
 **Merge without a review round (owner, 2026-11-19: "merge and push").**
 Asked whether Codex should read `claude/docs-mismatches` first, the owner
 had `main` fast-forwarded to it and pushed. A Claude session wrote both
-commits (`55d0c25`, the corrections above, and `a5e0d1e`, the outside check
+commits (`0c2859f`, the corrections above, and `c1f16a7`, the outside check
 in `docs/SETUP.md` 8) and no other agent read them. Neither changes code,
-tests or workflows; `55d0c25` adds the `User-Agent` sentence to §5 and
+tests or workflows; `0c2859f` adds the `User-Agent` sentence to §5 and
 `docs/PROTOCOL.md` 6.2, which describes behaviour the tests already pin.
 The owner also had `weekly govulncheck: findings` closed, since `main` is
 clean on Go 1.27.4, and the merged branches deleted.
@@ -1938,7 +1945,7 @@ Left for the owner, not changed:
 **Merge without a review round (owner, 2026-11-24: "Merge and push").**
 Asked whether to merge `claude/license-security` or have Codex review it
 first, the owner had `main` fast-forwarded to it and pushed. A Claude
-session wrote `f09ce44` and no other agent read it. It changes no code,
+session wrote `965dc84` and no other agent read it. It changes no code,
 tests or workflows. The three points above stay open.
 
 **Licence copy in the image (owner, 2026-11-24: "add the licence copy to
@@ -1963,10 +1970,24 @@ notice, and the image does not carry it. The builder has the text at
 `/usr/local/go/LICENSE`.
 
 **Merge without a review round (owner, 2026-11-24: "merge and push").**
-Told that `611bd1a` changes the `Dockerfile` and a CI script, and asked
+Told that `e5c3473` changes the `Dockerfile` and a CI script, and asked
 whether Codex should review it first, the owner had `main` fast-forwarded
 to `claude/licence-in-image` and pushed. A Claude session wrote the commit
 and no other agent read it. It changes no Go code, workflow or protocol.
+
+**Move to Oktul and history rewrite (owner, 2026-11-24).** The repository
+moved from a personal account to the Oktul organisation as a new private
+repository, `Oktul/eID-TARA-remote`, rather than a transfer, so that no
+pull request or cached commit keeps the old history reachable. Before the
+push, every commit's author and committer became one Oktul identity and the
+`Co-Authored-By` trailers were dropped, at the owner's request that each
+commit show one author. Trees, dates and subjects are unchanged; every
+commit hash changed. Hashes cited in commit messages were remapped during
+the rewrite, and the 33 in this plan were remapped afterwards. Agents
+still write and review as `AGENTS.md` describes; commits no longer name
+them in trailers. On the new repository, CI's gitleaks scan of the whole
+history passed, and a search of every file version found no secret,
+personal address, real ID or internal host.
 
 Primary references consulted for the review on 2026-10-15:
 
