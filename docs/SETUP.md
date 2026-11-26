@@ -6,10 +6,11 @@ allowlisted IP addresses. The relay runs in your network, calls TARA's token
 endpoint from your static IP, and keeps the TARA credential on your side
 (`PLAN.md` §1, §10 O-8).
 
-> **Status.** Not yet released: no image is published, so the tag `1.0.0`
-> of `ghcr.io/oktul/eid-tara-remote` in the deploy files does not exist
-> yet. The admin-page parts below belong to the Forge integration, built on
-> the Forge app's main line since 2026-10-18 (`PLAN.md` §14, Phase 3).
+> **Status.** First release `v1.0.0` (2026-11-26), released so that the
+> acceptance runs, TARA production among them, can run against a published
+> image; they are not finished yet. The admin-page parts below belong to
+> the Forge integration, built on the Forge app's main line since 2026-10-18
+> (`PLAN.md` §14, Phase 3).
 
 ```
 Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ──HTTPS──▶ TARA POST /oidc/token

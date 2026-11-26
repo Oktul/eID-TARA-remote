@@ -21,9 +21,10 @@ toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
 text (§7, §16). `main` is in the repository `Oktul/eID-TARA-remote` since
 2026-11-24, with its history rewritten to one author, and the repository is
 public since 2026-11-26 (§16); `ci` runs on every push. The image is
-`ghcr.io/oktul/eid-tara-remote` and the first release `v1.0.0` (§15 Q6);
-nothing is tagged or published yet. Still open: the PINNED gate, the other
-acceptance runs of §13 and the Phase 2 release verifications._
+`ghcr.io/oktul/eid-tara-remote`; `v1.0.0` is tagged on `release/1.0` on
+2026-11-26, before the acceptance runs, which need a published image (§14
+Phase 5, §16). Still open: the PINNED gate, the other acceptance runs of
+§13 and the Phase 2 release verifications._
 
 ## 1. What it is
 
@@ -1277,7 +1278,8 @@ promotes unreleased work from `main` into a patch release.
    passed on 2026-10-21, §13), PINNED (§15 Q3), and `govulncheck` on a
    release build.
 5. **Publish:** public repository (2026-11-26), `LICENSE` and `SECURITY.md`
-   (both added 2026-11-24, §16), support policy, `v1.0.0`.
+   (both added 2026-11-24, §16), support policy, `v1.0.0` (tagged
+   2026-11-26, ahead of Phase 4: owner's decision, §16).
 
 ## 15. Open questions
 
@@ -2030,6 +2032,24 @@ Asked whether Codex should review `claude/align-names` first, the owner had
 `main` fast-forwarded to it and pushed. A Claude session wrote `1f7f977`
 and no other agent read it. Apart from the Go import paths it changes no
 code, tests or workflows.
+
+**`v1.0.0` before acceptance (owner, 2026-11-26: "we need to get it live
+before we can start properly testing everything", "release v1.0.0").**
+TARA production, the Caddy front end and the other §13 runs need the relay
+on a customer host, pulled from the registry, so the first release comes
+before Phase 4 instead of after it. `release/1.0` and the annotated tag
+`v1.0.0` point to this commit; the tag starts `release.yml`, whose publish
+path runs here for the first time. Its notes are a draft until the owner
+writes them (§12, V-6). The `release tags` ruleset forbids moving or
+deleting a `v*` tag, so a fix that needs new code ships as `v1.0.1`.
+
+Open at this release, as listed above: the §13 acceptance runs (the
+hour-long fuzz runs, load, the JWKS outage, TARA live, Caddy with its
+`remote_ip` filter over HTTP/2, PINNED, `govulncheck` on a release build),
+the Phase 2 release verifications (§14), a replacement for Watchtower in
+`docs/SETUP.md` 9, Go's BSD licence notice in the image and the copyright
+holder's legal name. `README.md` and `docs/SETUP.md` say the release
+precedes the acceptance runs.
 
 Primary references consulted for the review on 2026-10-15:
 
