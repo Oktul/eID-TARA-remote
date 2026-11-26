@@ -23,7 +23,8 @@ text (§7, §16). `main` is in the repository `Oktul/eID-TARA-remote` since
 public since 2026-11-26 (§16); `ci` runs on every push. The image is
 `ghcr.io/oktul/eid-tara-remote`; `v1.0.0` is released from `release/1.0`
 on 2026-11-26, before the acceptance runs, which need a published image
-(§14 Phase 5, §16). Still open: the PINNED gate, the other acceptance runs of
+(§14 Phase 5, §16), and `go-patch.yml` released `v1.0.1`, a builder digest
+update, the same day. Still open: the PINNED gate, the other acceptance runs of
 §13 and the Phase 2 release verifications._
 
 ## 1. What it is
@@ -2070,9 +2071,36 @@ index digest `sha256:22e1dd95…8c362f` and opened a draft release.
   list the changes; a Claude session drafted them and the owner published
   them unchanged ("Publish it"). The release is marked latest.
 
-The first-publication items of §12 still to check: that the schedules of
-`go-patch.yml` and `weekly.yml` stay enabled now that the repository is
-public, and that `go-patch.yml` finds `release/1.0` on its next run.
+**Checks after publication and `v1.0.1` (2026-11-26, owner: "want to do
+some checks?", then "do both").**
+
+- `docker buildx imagetools inspect` on `1.0.0`: the provenance records
+  `VERSION` `1.0.0`, revision `cad8c78`, this repository as source and the
+  builder `golang:1.27.4-trixie@sha256:f18c3d73…` of the `Dockerfile`; the
+  SBOM lists the module and `stdlib` go1.27.4.
+- Started by hand, `weekly.yml` (run 45826237362) found the line `1.0` and
+  passed `govulncheck` on `main`, `release/1.0` and both `1.0` binaries.
+  Both scheduled workflows are active on the public repository.
+- `go-patch.yml` (run 45826231654), started by hand by a Claude session,
+  found `release/1.0` and released `v1.0.1`. The session had checked that Go
+  1.27.4 was still the newest patch but not the builder image: the official
+  `golang:1.27.4-trixie` had a new digest, `sha256:43098554…`, which §12
+  ships as an automatic patch. The bot's commit `1436e71` changes only the
+  `Dockerfile` builder line; every check passed, the notes say
+  "Upgrade: optional" with no vulnerability fixed, and `1.0` moved to its
+  index digest `sha256:43e9871d…`. `v1.0.1` pulls without a login and its
+  cosign signature verifies. The daily schedule would have released it on
+  its next run.
+- `main` takes the same builder line, so the next minor does not start from
+  an older builder: automatic patches update only release lines (§12), so
+  `main` follows them by hand. The deploy files pin `1.0.1`, the newest
+  release.
+
+Checks on that change: `gofmt`, `go vet`, `staticcheck`, `go test` and
+`govulncheck` (no vulnerabilities) pass on Windows, and `go test -race
+./...` in the pinned builder; `docker compose config` passes with and
+without the Caddy profile; the linux/amd64 image builds and passes
+`.github/scripts/smoke.sh`.
 
 **Merge without a review round (owner, 2026-11-26: "Merge and push").**
 The owner had `main` fast-forwarded to `claude/release-1.0.0` (`cad8c78`)
