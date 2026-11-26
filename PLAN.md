@@ -2074,6 +2074,12 @@ The first-publication items of §12 still to check: that the schedules of
 `go-patch.yml` and `weekly.yml` stay enabled now that the repository is
 public, and that `go-patch.yml` finds `release/1.0` on its next run.
 
+**Merge without a review round (owner, 2026-11-26: "Merge and push").**
+The owner had `main` fast-forwarded to `claude/release-1.0.0` (`cad8c78`)
+and `claude/record-v1.0.0` and pushed. A Claude session wrote both and no
+other agent read them. They change only this plan, `README.md` and
+`docs/SETUP.md`.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
