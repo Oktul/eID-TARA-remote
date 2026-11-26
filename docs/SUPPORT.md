@@ -18,11 +18,9 @@ releases of the relay.
 
 ## Supported lines
 
-**No release has been published yet, so no line is supported.**
-
-| Line | Branch | Image tag | Latest release | End of support |
-| ---- | ------ | --------- | -------------- | -------------- |
-| none | -      | -         | -              | -              |
+| Line | Branch        | Image tag | Latest release | End of support                  |
+| ---- | ------------- | --------- | -------------- | ------------------------------- |
+| 1.0  | `release/1.0` | `:1.0`    | `v1.0.2`       | Until 1.1 is released           |
 
 This table lists every supported line with its exact end-of-support date:
 

@@ -2051,6 +2051,30 @@ the Phase 2 release verifications (§14), a replacement for Watchtower in
 holder's legal name. `README.md` and `docs/SETUP.md` say the release
 precedes the acceptance runs.
 
+**`v1.0.2`: deploy files that pin their own tag (2026-11-26, owner chose
+"Yes, release v1.0.2").** The deploy files at the `v1.0.1` tag still pinned
+`1.0.0`, because `go-patch.yml` changes only the toolchain line in `go.mod`
+and the builder line in the `Dockerfile`, so a customer who copied them from the release ran the older image; only
+`main` pinned `1.0.1`. `docs/SUPPORT.md` still said no line was supported,
+and the README and `docs/SETUP.md` status named only `v1.0.0`. `v1.0.2`
+changes these files on `release/1.0` and `main` alike, and nothing the
+relay runs: the deploy files pin `1.0.2`, `docs/SUPPORT.md` lists the 1.0
+line, and both status lines name the 1.0 line instead of one release. Between the merge and
+the tag the deploy files name an image that does not exist yet, so the tag
+follows the merge at once: `go-patch.sh` also expects the branch tip to be
+the latest tag's commit.
+
+Left for the owner, not changed:
+
+- An automatic Go patch (§12) leaves the deploy files' pin and the
+  "Latest release" cell in `docs/SUPPORT.md` one release behind at its own
+  tag. `go-patch.yml` could update both in the commit it tags.
+
+A Claude session wrote both branches (`claude/release-1.0.2` on
+`release/1.0`, `claude/sync-1.0.2` on `main`). The review was one
+independent Claude agent, not Codex: round 2 of AGENTS.md is owed if the
+owner wants it. No Go file changed, so the Go checks were not rerun.
+
 Primary references consulted for the review on 2026-10-15:
 
 - [Forge Remote essentials](https://developer.atlassian.com/platform/forge/remote/essentials/)
