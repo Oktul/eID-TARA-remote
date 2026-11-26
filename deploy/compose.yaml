@@ -18,7 +18,7 @@ services:
   relay:
     # The version is pinned by default: upgrade by hand after reading the release notes, or
     # opt in to automatic patches by following :X.Y (PLAN.md §12).
-    image: ghcr.io/oktul/eid-tara-remote:1.0.0
+    image: ghcr.io/oktul/eid-tara-remote:1.0.2
     restart: unless-stopped
     # Longer than RELAY_SHUTDOWN_GRACE (15s), so in-flight requests finish
     # before Docker kills the process (PLAN.md §6 R-11).
