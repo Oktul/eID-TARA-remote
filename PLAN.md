@@ -2103,6 +2103,12 @@ without the Caddy profile; the linux/amd64 image builds and passes
 `.github/scripts/smoke.sh`.
 
 **Merge without a review round (owner, 2026-11-26: "Merge and push").**
+The owner had `main` fast-forwarded to `claude/sync-1.0.1` and pushed. A
+Claude session wrote `4ad4b4f` and no other agent read it. It changes the
+`Dockerfile` builder line to the one `go-patch.yml` checked and released on
+`release/1.0`, the deploy files' tag and this plan.
+
+**Merge without a review round (owner, 2026-11-26: "Merge and push").**
 The owner had `main` fast-forwarded to `claude/release-1.0.0` (`cad8c78`)
 and `claude/record-v1.0.0` and pushed. A Claude session wrote both and no
 other agent read them. They change only this plan, `README.md` and
