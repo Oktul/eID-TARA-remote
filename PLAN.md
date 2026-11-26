@@ -9,8 +9,9 @@ for a live client and a registered IP. Every code change on `main` was
 reviewed by an agent that did not write it, with no open findings; the
 owner merged the 2026-10-21 test fix and Go 1.27.3 toolchain without a
 Codex round, and the 2026-11-19 Go 1.27.4 toolchain and documentation
-corrections and the 2026-11-24 `LICENSE`, `SECURITY.md`, licence copy in
-the image and plan hash remap with no second agent's review (§16). An end-to-end security review on 2026-10-20 refused
+corrections, the 2026-11-24 `LICENSE`, `SECURITY.md`, licence copy in
+the image and plan hash remap, and the 2026-11-26 name alignment with no
+second agent's review (§16). An end-to-end security review on 2026-10-20 refused
 everything it should; of its low and info findings, SR-4, SR-5, SR-8 and
 SR-9 are fixed, the owner decided SR-5, SR-6 and SR-7, and SR-1 (FIT
 replay) is closed without a fix, since a spike showed Forge reuses FITs
@@ -2023,6 +2024,12 @@ vulnerabilities) pass on Windows, and `go test -race ./...` in the pinned
 Go 1.27.4 builder with networking disabled. `docker compose config` passes
 with and without the Caddy profile; the linux/amd64 image builds, carries
 the title `eid-tara-remote` and passes `.github/scripts/smoke.sh`.
+
+**Merge without a review round (owner, 2026-11-26: "Merge and push").**
+Asked whether Codex should review `claude/align-names` first, the owner had
+`main` fast-forwarded to it and pushed. A Claude session wrote `1f7f977`
+and no other agent read it. Apart from the Go import paths it changes no
+code, tests or workflows.
 
 Primary references consulted for the review on 2026-10-15:
 
