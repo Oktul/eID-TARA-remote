@@ -48,7 +48,7 @@ spec:
           # The version is pinned by default; to follow :X.Y patches instead, use
           # imagePullPolicy: Always and a scheduled rollout restart
           # (PLAN.md §12).
-          image: ghcr.io/oktul/eid-tara-remote:1.0.1
+          image: ghcr.io/oktul/eid-tara-remote:1.0.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

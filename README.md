@@ -16,11 +16,11 @@ Token for this app, from the pinned site and Forge environment, for exactly
 `POST /oidc/token`. Everything else is refused. The relay never logs bodies,
 tokens or the credential.
 
-**Status: first release, `v1.0.0` (2026-11-26).** It was released so the
-acceptance runs, TARA production among them, can run against a published
-image; they are not finished yet. The admin-page parts below belong to the
-Forge integration (Phase 3), built on the Forge app's main line since
-2026-10-18. `PLAN.md` §14 tracks the phases.
+**Status: released, the 1.0 line (first release `v1.0.0`, 2026-11-26).**
+It was released so the acceptance runs, TARA production among them, can run
+against a published image; they are not finished yet. The admin-page parts
+below belong to the Forge integration (Phase 3), built on the Forge app's
+main line since 2026-10-18. `PLAN.md` §14 tracks the phases.
 
 ## Run it
 
