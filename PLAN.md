@@ -21,9 +21,9 @@ toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
 text (§7, §16). `main` is in the repository `Oktul/eID-TARA-remote` since
 2026-11-24, with its history rewritten to one author, and the repository is
 public since 2026-11-26 (§16); `ci` runs on every push. The image is
-`ghcr.io/oktul/eid-tara-remote`; `v1.0.0` is tagged on `release/1.0` on
-2026-11-26, before the acceptance runs, which need a published image (§14
-Phase 5, §16). Still open: the PINNED gate, the other acceptance runs of
+`ghcr.io/oktul/eid-tara-remote`; `v1.0.0` is released from `release/1.0`
+on 2026-11-26, before the acceptance runs, which need a published image
+(§14 Phase 5, §16). Still open: the PINNED gate, the other acceptance runs of
 §13 and the Phase 2 release verifications._
 
 ## 1. What it is
@@ -2050,6 +2050,29 @@ the Phase 2 release verifications (§14), a replacement for Watchtower in
 `docs/SETUP.md` 9, Go's BSD licence notice in the image and the copyright
 holder's legal name. `README.md` and `docs/SETUP.md` say the release
 precedes the acceptance runs.
+
+**`v1.0.0` released (2026-11-26).** `release.yml` run 45817672070 passed
+every job on its first real run: the checks, both builds, smoke tests on
+amd64 and arm64, the notes and publish. It pushed `1.0.0` and `1.0` with the
+index digest `sha256:22e1dd95…8c362f` and opened a draft release.
+
+- ghcr.io created the package private. The organisation allowed no public
+  packages, so the owner enabled them under the organisation's package
+  settings and made `eid-tara-remote` public. A public package cannot be
+  made private again.
+- Checked after that, from this workstation with no registry login: both
+  tags pull and resolve to that digest (linux/amd64, linux/arm64); `cosign
+  verify` (v3.1.3, the release's pin, from its official image) passes with
+  the identity and issuer of `docs/SETUP.md` 9; the pulled image passes
+  `.github/scripts/smoke.sh`, and its labels give version `1.0.0`, revision
+  `cad8c78` (the tagged commit) and this repository as source.
+- The release notes say "Upgrade: optional" (nothing to upgrade from) and
+  list the changes; a Claude session drafted them and the owner published
+  them unchanged ("Publish it"). The release is marked latest.
+
+The first-publication items of §12 still to check: that the schedules of
+`go-patch.yml` and `weekly.yml` stay enabled now that the repository is
+public, and that `go-patch.yml` finds `release/1.0` on its next run.
 
 Primary references consulted for the review on 2026-10-15:
 
