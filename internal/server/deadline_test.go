@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/config"
-	"eid-forge-remote/internal/server"
+	"eid-tara-remote/internal/config"
+	"eid-tara-remote/internal/server"
 )
 
 // TestSlowBodyStillGetsUpstreamAnswer proves that the write deadline

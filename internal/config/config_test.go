@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/config"
+	"eid-tara-remote/internal/config"
 )
 
 // Synthetic identifiers; none belongs to a real app, environment or site.

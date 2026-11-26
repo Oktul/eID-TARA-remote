@@ -23,9 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"eid-forge-remote/internal/config"
-	"eid-forge-remote/internal/fit"
-	"eid-forge-remote/internal/forward"
+	"eid-tara-remote/internal/config"
+	"eid-tara-remote/internal/fit"
+	"eid-tara-remote/internal/forward"
 )
 
 // Server limits from PLAN.md §6 R-1. The write timeout is the upstream

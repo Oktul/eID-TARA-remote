@@ -6,12 +6,10 @@ allowlisted IP addresses. The relay runs in your network, calls TARA's token
 endpoint from your static IP, and keeps the TARA credential on your side
 (`PLAN.md` §1, §10 O-8).
 
-> **Status.** Not yet released: no image is published, so the tag `0.1.0`
-> in the deploy files does not exist yet. The admin-page parts below belong
-> to the Forge integration, built on the Forge app's main line since
-> 2026-10-18 (`PLAN.md` §14, Phase 3). The image name
-> is written `ghcr.io/OWNER/eid-forge-remote`, because the GitHub owner is
-> not decided yet (`PLAN.md` §15 Q6).
+> **Status.** Not yet released: no image is published, so the tag `1.0.0`
+> of `ghcr.io/oktul/eid-tara-remote` in the deploy files does not exist
+> yet. The admin-page parts below belong to the Forge integration, built on
+> the Forge app's main line since 2026-10-18 (`PLAN.md` §14, Phase 3).
 
 ```
 Forge app ──HTTPS──▶ your reverse proxy ──HTTP──▶ relay ──HTTPS──▶ TARA POST /oidc/token
@@ -189,7 +187,7 @@ relay. The optional Caddy service (`deploy/Caddyfile`) runs only with the
      the required inbound connection limit at your firewall or load balancer
      (section 6.3, item 3), then run `docker compose --profile caddy up -d`.
    - **Behind your own proxy:** run `docker compose up -d`. Attach the proxy
-     container to the compose network `eid-forge-remote_default` and send to
+     container to the compose network `eid-tara-remote_default` and send to
      `relay:8080`, or, for a proxy running on the host itself, uncomment the
      `ports` entry `127.0.0.1:8080:8080`. Never publish the relay port on a
      public address (section 6.3).
@@ -206,14 +204,14 @@ relay. The optional Caddy service (`deploy/Caddyfile`) runs only with the
 `deploy/kubernetes/` holds:
 
 - `deployment.yaml` (Kubernetes 1.30 or later, for its `preStop` sleep):
-  the Deployment `eid-forge-remote`, one replica, running
+  the Deployment `eid-tara-remote`, one replica, running
   as user and group 65532 with a read-only root filesystem, no privilege
   escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile
   and a 128Mi memory limit. It probes liveness on `/livez` and readiness on
   `/readyz`, and mounts the Secret at `/run/secrets/relay`.
-- `service.yaml`: the `ClusterIP` Service `eid-forge-remote`, port 8080,
+- `service.yaml`: the `ClusterIP` Service `eid-tara-remote`, port 8080,
   named `http`.
-- `secret.yaml`: the Secret `eid-forge-remote-upstream-auth` with the key
+- `secret.yaml`: the Secret `eid-tara-remote-upstream-auth` with the key
   `upstream-auth`, as a placeholder only, which stops startup. Do not fill it
   in, since a filled-in copy is easy to commit: create the Secret with
   `kubectl` (step 3) and delete this file from your copy.
@@ -232,7 +230,7 @@ There is no Ingress: you route your own ingress controller to the Service
    overwrite your Secret with the placeholder:
 
    ```sh
-   kubectl -n <namespace> create secret generic eid-forge-remote-upstream-auth \
+   kubectl -n <namespace> create secret generic eid-tara-remote-upstream-auth \
      --from-file=upstream-auth=secrets/upstream_auth
    ```
 
@@ -257,8 +255,8 @@ There is no Ingress: you route your own ingress controller to the Service
 
    ```sh
    kubectl -n <namespace> apply -f deploy/kubernetes/
-   kubectl -n <namespace> get pods -l app.kubernetes.io/name=eid-forge-remote
-   kubectl -n <namespace> logs deploy/eid-forge-remote
+   kubectl -n <namespace> get pods -l app.kubernetes.io/name=eid-tara-remote
+   kubectl -n <namespace> logs deploy/eid-tara-remote
    ```
 
 Keep `enableServiceLinks: false` in the Deployment: otherwise a Service named
@@ -395,7 +393,7 @@ connections from Caddy to the relay; it does not provide this inbound cap.
 ### 6.5 Kubernetes ingress controller
 
 The Kubernetes files ship no Ingress. Route your controller to the Service
-`eid-forge-remote`, port `http`, with TLS and the requirements of section
+`eid-tara-remote`, port `http`, with TLS and the requirements of section
 6.3. The settings to look for, with their names in nginx and HAProxy, on
 which many controllers are built:
 
@@ -480,7 +478,7 @@ refuses a skew over 1 minute.
 
    ```sh
    docker compose exec relay /relay healthcheck --ready && echo ready
-   kubectl -n <namespace> exec deploy/eid-forge-remote -- /relay healthcheck --ready
+   kubectl -n <namespace> exec deploy/eid-tara-remote -- /relay healthcheck --ready
    ```
 
    In Kubernetes, a pod shows `READY 1/1` once `/readyz` answers `200`.
@@ -543,9 +541,9 @@ digest:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp '^https://github\.com/OWNER/eID-forge-remote/\.github/workflows/release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/main)$' \
+  --certificate-identity-regexp '^https://github\.com/Oktul/eID-TARA-remote/\.github/workflows/release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/main)$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/OWNER/eid-forge-remote@sha256:<digest>
+  ghcr.io/oktul/eid-tara-remote@sha256:<digest>
 ```
 
 The identity is `release.yml` of this repository, started by a `vX.Y.Z` tag
@@ -554,13 +552,13 @@ Write the owner and repository as GitHub spells them, with dots escaped.
 Each release's notes contain this command with the real names and the
 image's index digest. The SBOM and provenance attestations are attached to
 the image index; `docker buildx imagetools inspect
-ghcr.io/OWNER/eid-forge-remote:X.Y.Z --format '{{json .Provenance}}'` shows
+ghcr.io/oktul/eid-tara-remote:X.Y.Z --format '{{json .Provenance}}'` shows
 the provenance (`.SBOM` the SBOM).
 
 **Rollback:** note the digest of the image you run before upgrading, for
 example with `docker inspect --format '{{index .RepoDigests 0}}'
-ghcr.io/OWNER/eid-forge-remote:X.Y.Z`. To roll back, deploy that digest
-(`ghcr.io/OWNER/eid-forge-remote@sha256:<digest>`).
+ghcr.io/oktul/eid-tara-remote:X.Y.Z`. To roll back, deploy that digest
+(`ghcr.io/oktul/eid-tara-remote@sha256:<digest>`).
 
 Which lines are supported, and until when: `docs/SUPPORT.md`.
 

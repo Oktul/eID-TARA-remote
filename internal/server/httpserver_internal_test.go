@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/config"
+	"eid-tara-remote/internal/config"
 )
 
 // TestHTTPServerSettingsMatchPlan pins the listener settings of PLAN.md §6

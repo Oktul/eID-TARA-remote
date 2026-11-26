@@ -5,7 +5,7 @@
 # credential Secret from your file (docs/SETUP.md §5) instead of filling in
 # secret.yaml, which is easy to commit by mistake:
 #   kubectl -n <namespace> create secret generic \
-#     eid-forge-remote-upstream-auth --from-file=upstream-auth=<file>
+#     eid-tara-remote-upstream-auth --from-file=upstream-auth=<file>
 # Delete secret.yaml from your copy, so applying the directory cannot
 # overwrite the Secret with the placeholder, and run `kubectl -n <namespace>
 # apply -f deploy/kubernetes/`. Expose the Service only through your ingress
@@ -13,18 +13,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: eid-forge-remote
+  name: eid-tara-remote
   labels:
-    app.kubernetes.io/name: eid-forge-remote
+    app.kubernetes.io/name: eid-tara-remote
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: eid-forge-remote
+      app.kubernetes.io/name: eid-tara-remote
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: eid-forge-remote
+        app.kubernetes.io/name: eid-tara-remote
     spec:
       # The relay never calls the Kubernetes API.
       automountServiceAccountToken: false
@@ -45,11 +45,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: relay
-          # OWNER is the GitHub owner, still open (PLAN.md §15 Q6). The
-          # version is pinned by default; to follow :X.Y patches instead, use
+          # The version is pinned by default; to follow :X.Y patches instead, use
           # imagePullPolicy: Always and a scheduled rollout restart
           # (PLAN.md §12).
-          image: ghcr.io/OWNER/eid-forge-remote:0.1.0
+          image: ghcr.io/oktul/eid-tara-remote:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -106,5 +105,5 @@ spec:
       volumes:
         - name: upstream-auth
           secret:
-            secretName: eid-forge-remote-upstream-auth
+            secretName: eid-tara-remote-upstream-auth
             defaultMode: 0440

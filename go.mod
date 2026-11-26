@@ -1,4 +1,4 @@
-module eid-forge-remote
+module eid-tara-remote
 
 go 1.27.0
 

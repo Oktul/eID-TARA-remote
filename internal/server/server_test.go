@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/server"
+	"eid-tara-remote/internal/server"
 )
 
 // TestCheckOrder proves the order of PLAN.md §4.2 on a ready relay: the FIT

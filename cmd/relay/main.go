@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EUPL-1.2
 
-// Command relay runs the eID Forge Remote relay (PLAN.md §1).
+// Command relay runs the eID TARA Remote relay (PLAN.md §1).
 //
 // Usage:
 //
@@ -28,10 +28,10 @@ import (
 	"syscall"
 	"time"
 
-	"eid-forge-remote/internal/config"
-	"eid-forge-remote/internal/fit"
-	"eid-forge-remote/internal/forward"
-	"eid-forge-remote/internal/server"
+	"eid-tara-remote/internal/config"
+	"eid-tara-remote/internal/fit"
+	"eid-tara-remote/internal/forward"
+	"eid-tara-remote/internal/server"
 )
 
 // version is the release, stamped at build time with

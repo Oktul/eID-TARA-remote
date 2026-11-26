@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/fit"
+	"eid-tara-remote/internal/fit"
 )
 
 // Synthetic identifiers; none belongs to a real app, environment or site.

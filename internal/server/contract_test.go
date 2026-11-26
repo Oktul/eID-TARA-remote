@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/forward"
-	"eid-forge-remote/internal/server"
+	"eid-tara-remote/internal/forward"
+	"eid-tara-remote/internal/server"
 )
 
 // The contract fixtures of PLAN.md §4.6, exercised over HTTP. Header names,

@@ -6,13 +6,13 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: eid-forge-remote
+  name: eid-tara-remote
   labels:
-    app.kubernetes.io/name: eid-forge-remote
+    app.kubernetes.io/name: eid-tara-remote
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: eid-forge-remote
+      app.kubernetes.io/name: eid-tara-remote
   policyTypes: [Ingress, Egress]
   ingress:
     # Replace "ingress" with your ingress controller's namespace. Kubelet

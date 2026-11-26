@@ -29,10 +29,10 @@ import (
 	"testing"
 	"time"
 
-	"eid-forge-remote/internal/config"
-	"eid-forge-remote/internal/fit"
-	"eid-forge-remote/internal/forward"
-	"eid-forge-remote/internal/server"
+	"eid-tara-remote/internal/config"
+	"eid-tara-remote/internal/fit"
+	"eid-tara-remote/internal/forward"
+	"eid-tara-remote/internal/server"
 )
 
 // Synthetic identifiers. None belongs to a real app, environment, site or

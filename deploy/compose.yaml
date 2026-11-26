@@ -3,7 +3,7 @@
 # The relay on Docker Compose (PLAN.md §10 O-6).
 #   docker compose up -d                   the relay, behind your own proxy
 #   docker compose --profile caddy up -d   the relay behind Caddy (Caddyfile)
-name: eid-forge-remote
+name: eid-tara-remote
 
 # Docker's default log driver never rotates, and the relay logs every request
 # (PLAN.md §10 O-4), so a flood of rejected requests could fill the host's
@@ -16,10 +16,9 @@ x-logging: &logging
 
 services:
   relay:
-    # OWNER is the GitHub owner, still open (PLAN.md §15 Q6). The version is
-    # pinned by default: upgrade by hand after reading the release notes, or
+    # The version is pinned by default: upgrade by hand after reading the release notes, or
     # opt in to automatic patches by following :X.Y (PLAN.md §12).
-    image: ghcr.io/OWNER/eid-forge-remote:0.1.0
+    image: ghcr.io/oktul/eid-tara-remote:1.0.0
     restart: unless-stopped
     # Longer than RELAY_SHUTDOWN_GRACE (15s), so in-flight requests finish
     # before Docker kills the process (PLAN.md §6 R-11).

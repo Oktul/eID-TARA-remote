@@ -1,6 +1,6 @@
-# eID Forge Remote — Plan
+# eID TARA Remote — Plan
 
-_Status 2026-11-24: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
+_Status 2026-11-26: Phases 1 and 2 are implemented ahead of Phase 0 (D10)
 and checked locally and in CI (§16). Phase 0 ran on 2026-10-16: every gate
 passed except PINNED, which needs a site with data residency (§14). Phase 3
 is on the Forge app's main line since 2026-10-18 (owner's go-ahead); a TARA
@@ -17,11 +17,12 @@ replay) is closed without a fix, since a spike showed Forge reuses FITs
 across calls (§14 Phase 4). The soak passed on 2026-10-21 (§13). The
 toolchain is Go 1.27.4 since 2026-11-19 (GO-2026-6859, §16). `LICENSE` and
 `SECURITY.md` are in since 2026-11-24, and the image carries the licence
-text (§7, §16). `main` is in the private repository
-`Oktul/eID-TARA-remote` since 2026-11-24, with its history rewritten to one
-author (§16), and `ci` runs on every push; nothing is tagged or published.
-Still open: the PINNED gate, the other acceptance runs of §13, the image
-name (§15 Q6) and the Phase 2 release verifications._
+text (§7, §16). `main` is in the repository `Oktul/eID-TARA-remote` since
+2026-11-24, with its history rewritten to one author, and the repository is
+public since 2026-11-26 (§16); `ci` runs on every push. The image is
+`ghcr.io/oktul/eid-tara-remote` and the first release `v1.0.0` (§15 Q6);
+nothing is tagged or published yet. Still open: the PINNED gate, the other
+acceptance runs of §13 and the Phase 2 release verifications._
 
 ## 1. What it is
 
@@ -55,7 +56,7 @@ still needs evidence is explicitly gated in §14 and §15.
 | --- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1  | **Customers run relays. We host none in v1.**                                                                          | Removes the relay key pair, end-to-end JWE, fingerprint pinning and key rotation from §4.7. No processor chain through a cloud provider: the customer runs the hop and is the controller. An Oktul-hosted relay can come later as protocol v2. |
 | D2  | **Go and its standard library only. No third-party modules** (2026-10-15; was `go-jose/v4`).                           | The standard library covers HTTPS, JSON, RSA, timeouts and cancellation. The FIT is always RS256, so `crypto/rsa` checks it in a few lines, and every update becomes a Go patch, which ships automatically (D4). §7.                           |
-| D3  | **Separate repository `eID-forge-remote`, private at first.** Published under EUPL-1.2 before the first customer.      | Different language, toolchain and release lifecycle from the Forge app, which stays closed. Customers must be able to pull the image without credentials and audit the code they run.                                                          |
+| D3  | **Separate repository `eID-TARA-remote`, private at first** (public since 2026-11-26). Published under EUPL-1.2 before the first customer. | Different language, toolchain and release lifecycle from the Forge app, which stays closed. Customers must be able to pull the image without credentials and audit the code they run.                                                          |
 | D4  | **CI on GitHub Actions. Go patch releases ship automatically;** every other change needs a human merge (2026-10-15).   | Go's `net/http` and `crypto/tls` get security fixes several times a year. A Go patch release carries only such fixes and the tests pin the protocol, so it ships unreviewed. Go minors and Actions can change more. §12.                       |
 | D5  | **Every relay is pinned to the customer's site (`cloudId`) and Forge environment. Both are required settings.**        | The FIT's audience is our app ID, shared by every install. Without a pin, another site's admin could point their install at this relay and use the customer's IP and credential.                                                               |
 | D6  | **No end-to-end encryption in v1.** TLS from Forge to the customer's reverse proxy, then plain HTTP inside their host. | With D1, everything that can read the traffic is the customer's own infrastructure.                                                                                                                                                            |
@@ -727,9 +728,9 @@ Dockerfile, .dockerignore, go.mod, README.md, AGENTS.md, CONTRIBUTING.md, PLAN.m
 LICENSE, SECURITY.md
 ```
 
-The module path is `eid-forge-remote` until the image name is settled
-(§15 Q6); nothing imports the module from outside, so the path can change
-then (2026-10-15).
+The module path is `eid-tara-remote`, the image's name (§15 Q6; was
+`eid-forge-remote` until 2026-11-26). Nothing imports the module from
+outside, so it needs no host prefix.
 
 `LICENSE` (EUPL-1.2) and `SECURITY.md` were added on 2026-11-24, ahead of
 publication (D3; owner's request, §16). From the first commit, nothing goes
@@ -789,7 +790,7 @@ promotes unreleased work from `main` into a patch release.
     `govulncheck -mode=binary` and run the container smoke tests before
     assigning customer release tags;
   - push the verified candidate to
-    `ghcr.io/<owner>/eid-forge-remote` by digest or a staging tag; generate
+    `ghcr.io/oktul/eid-tara-remote` by digest or a staging tag; generate
     SBOM and provenance attestations and cosign keyless signatures using
     GitHub's OIDC token. Verify both architectures, their digests and the
     signature identity against this repository's trusted release workflow
@@ -1197,7 +1198,8 @@ promotes unreleased work from `main` into a patch release.
    errors, health and logs, with failure-case tests and §4.6 contract fixtures.
    Add basic `ci.yml` immediately with formatting, vet, staticcheck, race
    tests, vulnerability and secret checks. Exit only when all Phase 0 gates
-   and source CI pass. Tag `v0.1.0` only when tagging is explicitly requested.
+   and source CI pass. Not tagged: the first tag is `v1.0.0` (owner,
+   2026-11-26), and only when tagging is explicitly requested.
 2. **Packaging and release CI:** Dockerfile, deploy files, `docs/`, Docker
    checks added to `ci.yml`, the three remaining workflows, and a signed
    multi-arch release. Verify release-line isolation, competing release runs,
@@ -1273,8 +1275,8 @@ promotes unreleased work from `main` into a patch release.
    inbound HTTP/2, load and the JWKS outage acceptance run (the soak
    passed on 2026-10-21, §13), PINNED (§15 Q3), and `govulncheck` on a
    release build.
-5. **Publish:** public repository, `LICENSE` and `SECURITY.md` (both added
-   2026-11-24, §16), support policy, `v1.0.0`.
+5. **Publish:** public repository (2026-11-26), `LICENSE` and `SECURITY.md`
+   (both added 2026-11-24, §16), support policy, `v1.0.0`.
 
 ## 15. Open questions
 
@@ -1290,13 +1292,11 @@ promotes unreleased work from `main` into a patch release.
    The relay does not forward JWKS, profile or other-provider calls.
 5. A customer with no host or static IP cannot use TARA production in v1
    (D1). Revisit if customers ask for it.
-6. The publication date and the image name. The GitHub owner is decided
-   (owner, 2026-11-24): the repository is `Oktul/eID-TARA-remote`.
-   `lib.sh` names the image after the repository,
-   `ghcr.io/oktul/eid-tara-remote`, but the deploy files, the module path
-   and `docs/SETUP.md` still say `eid-forge-remote`, and the signature check
-   in `docs/SETUP.md` 9 expects `OWNER/eID-forge-remote`. One side changes
-   before the first release.
+6. ~~The publication date and the image name.~~ Decided: the repository is
+   `Oktul/eID-TARA-remote` (owner, 2026-11-24) and public since 2026-11-26;
+   the image is `ghcr.io/oktul/eid-tara-remote`, the name `lib.sh` derives
+   from the repository, and the first release is `v1.0.0` (owner,
+   2026-11-26). The deploy files, module path and docs follow (§16).
 7. Decided (owner, 2026-10-16, on the recommendation to keep it simple and
    secure): `RELAY_JWKS_MAX_AGE` is measured on the monotonic clock, not
    wall-clock time. A removed key is trusted until the next successful
@@ -1993,6 +1993,36 @@ personal address, real ID or internal host.
 Asked whether Codex should review the hash remap first, the owner had
 `main` fast-forwarded to `claude/rewrite-hashes` and pushed. A Claude
 session wrote it and no other agent read it. It changes only this plan.
+
+**Names aligned with the repository (owner, 2026-11-26: "align the
+names", "first version is v1.0.0"), branch `claude/align-names`.** The
+repository `Oktul/eID-TARA-remote` became public on 2026-11-26. A customer
+found the deploy files naming `ghcr.io/OWNER/eid-forge-remote:0.1.0`, which
+never existed. `release.yml` publishes under the repository's name
+(`image_name` in `.github/scripts/lib.sh`), so the documents follow it:
+
+- `eid-forge-remote` became `eid-tara-remote` everywhere: the image, the
+  deploy files' Compose project and Kubernetes object names and labels
+  (including the Secret `eid-tara-remote-upstream-auth`), the `Dockerfile`
+  title label, the Go module path and its imports, and `docs/SETUP.md`.
+  Nothing is released, so no installed relay carries the old names.
+- The deploy files pin `ghcr.io/oktul/eid-tara-remote:1.0.0`, closing the
+  `0.1.0` against `v1.0.0` point above; `docs/SETUP.md` 9 verifies
+  signatures from `Oktul/eID-TARA-remote`, the identity `identity_regexp`
+  in `lib.sh` checks.
+- "eID Forge Remote" became "eID TARA Remote" in titles and comments.
+- `AGENTS.md` no longer calls the repository private.
+
+On GitHub on 2026-11-26: private vulnerability reporting is enabled, which
+closes that point of 2026-11-24, and the repository has rulesets named
+`main`, `release` and `release tags`. No code behaviour, test, workflow,
+protocol or setting name changes.
+
+Checks: `gofmt`, `go vet`, `staticcheck`, `go test` and `govulncheck` (no
+vulnerabilities) pass on Windows, and `go test -race ./...` in the pinned
+Go 1.27.4 builder with networking disabled. `docker compose config` passes
+with and without the Caddy profile; the linux/amd64 image builds, carries
+the title `eid-tara-remote` and passes `.github/scripts/smoke.sh`.
 
 Primary references consulted for the review on 2026-10-15:
 

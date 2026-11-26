@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"eid-forge-remote/internal/forward"
+	"eid-tara-remote/internal/forward"
 )
 
 // Limits and the JWKS default of PLAN.md §4.5, §6 and §8.

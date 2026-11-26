@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"eid-forge-remote/internal/config"
+	"eid-tara-remote/internal/config"
 )
 
 // The fuzz tests cover the parsers that turn operator input into settings

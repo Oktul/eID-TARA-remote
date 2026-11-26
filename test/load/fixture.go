@@ -239,7 +239,7 @@ func newCertificates(host string, now time.Time) (caPEM []byte, server tls.Certi
 	}
 	caTemplate := &x509.Certificate{
 		SerialNumber:          caSerial,
-		Subject:               pkix.Name{CommonName: "eID Forge Remote load test CA"},
+		Subject:               pkix.Name{CommonName: "eID TARA Remote load test CA"},
 		NotBefore:             now.Add(-certBackdate),
 		NotAfter:              now.Add(certLifetime),
 		IsCA:                  true,

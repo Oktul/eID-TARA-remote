@@ -23,9 +23,9 @@ Hard constraints (from `PLAN.md`; change them only when the owner says so):
   header values, the FIT or the upstream credential. The sole header-derived
   exception is the validated trace ID defined in `PLAN.md` §10. Use matched
   routes and fixed error classes, never raw errors or unverified site IDs.
-- **Public-ready from the first commit.** The repository is private for now
-  but will be published. Never commit secrets, keys, customer names or
-  internal hostnames.
+- **Public from the first commit.** The repository is public (since
+  2026-11-26) and its history was written to be. Never commit secrets,
+  keys, customer names or internal hostnames.
 - **The protocol is a contract** with old relays in the field. Changing a
   response code, header, endpoint or setting name follows `PLAN.md` §4 and
   §4.6. The plan is the complete local contract; historical requirement IDs

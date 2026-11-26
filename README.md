@@ -1,4 +1,4 @@
-# eID Forge Remote
+# eID TARA Remote
 
 The TARA token relay for the Oktul eID SSO Forge app. TARA production accepts
 token requests only from allowlisted IP addresses. A customer runs this
@@ -16,7 +16,7 @@ Token for this app, from the pinned site and Forge environment, for exactly
 `POST /oidc/token`. Everything else is refused. The relay never logs bodies,
 tokens or the credential.
 
-**Status: not yet released.** No image is published, so the `0.1.0` tag in
+**Status: not yet released.** No image is published, so the `1.0.0` tag in
 `deploy/` does not exist yet. The admin-page parts below belong to the Forge
 integration (Phase 3), built on the Forge app's main line since 2026-10-18.
 `PLAN.md` §14 tracks the phases.
@@ -72,8 +72,8 @@ Use the `staticcheck` and `govulncheck` versions pinned in
 smoke-test the image as CI does (Docker Buildx, bash, curl):
 
 ```sh
-docker buildx build --load --tag eid-forge-remote:dev .
-.github/scripts/smoke.sh eid-forge-remote:dev
+docker buildx build --load --tag eid-tara-remote:dev .
+.github/scripts/smoke.sh eid-tara-remote:dev
 ```
 
 The acceptance load test, `go run ./test/load -relay <url>`, serves its own

@@ -28,7 +28,7 @@ FROM scratch
 ARG VERSION
 # release.yml adds the source and revision labels, which only a release build
 # knows (PLAN.md §12).
-LABEL org.opencontainers.image.title="eid-forge-remote" \
+LABEL org.opencontainers.image.title="eid-tara-remote" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="EUPL-1.2"
 # The CA bundle comes from the builder, so it refreshes with every toolchain
