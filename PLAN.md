@@ -24,8 +24,10 @@ public since 2026-11-26 (§16); `ci` runs on every push. The image is
 `ghcr.io/oktul/eid-tara-remote`; `v1.0.0` is released from `release/1.0`
 on 2026-11-26, before the acceptance runs, which need a published image
 (§14 Phase 5, §16), and `go-patch.yml` released `v1.0.1`, a builder digest
-update, the same day. Still open: the PINNED gate, the other acceptance runs of
-§13 and the Phase 2 release verifications._
+update, the same day. Oktul's penetration test of 669dbc9 (v1.0.2), run
+against the code on 2026-11-28, found nothing (§16). Still open: the PINNED
+gate, the other acceptance runs of §13 and the Phase 2 release
+verifications._
 
 ## 1. What it is
 
@@ -2137,6 +2139,31 @@ A Claude session wrote both branches (`claude/release-1.0.2` on
 `release/1.0`, `claude/sync-1.0.2` on `main`). The review was one
 independent Claude agent, not Codex: round 2 of AGENTS.md is owed if the
 owner wants it. No Go file changed, so the Go checks were not rerun.
+
+**Penetration test (2026-11-28, Oktul's security scans).** A suite in
+Oktul's internal security-scans repository built `main` at 669dbc9 from
+this `Dockerfile` and attacked it on loopback, hardened as
+`deploy/compose.yaml` runs it, against a local
+fixture that played Atlassian's JWKS and signing keys and a hostile TARA.
+Nothing was sent to Atlassian, TARA or a customer's relay. 220 checks
+passed, with no finding: startup settings (SR-4, SR-5 look-alike origins,
+credential header injection, every pin), the exact health exemption,
+fail-closed readiness, forged and malformed FITs (alg `none`, HS256 keyed
+with the public key, `jwk`/`jku`/`x5u`, which were never fetched),
+FITs validly signed for another site, environment, installation or app,
+installation contexts standing in for the site, duplicate and escaped
+claim names, every near miss of the token route, what reaches the
+upstream, a hostile upstream's headers, redirect, size and timeout,
+untrusted upstream and JWKS certificates, the unknown-kid cooldown and key
+rotation, raw HTTP parsing, and the logs at debug level, with each refusal
+matched to the `auth_reason` it targeted. It confirmed SR-1 and SR-7 as
+decided, and that net/http unfolds a folded header (RFC 9112 §5.2), which
+needs a valid FIT to matter. The concurrency cap, long timers and the
+customer's proxy were left to this repository's own tests. The results
+are recorded with that suite. Only this entry and the status line
+changed; no Go file, so the Go checks were not rerun. Written by a Claude
+session on `claude/pentest-2026-11-28`; rounds 2 and 3 of AGENTS.md and
+the owner's merge are owed.
 
 Primary references consulted for the review on 2026-10-15:
 
