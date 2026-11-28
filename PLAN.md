@@ -2161,9 +2161,13 @@ decided, and that net/http unfolds a folded header (RFC 9112 §5.2), which
 needs a valid FIT to matter. The concurrency cap, long timers and the
 customer's proxy were left to this repository's own tests. The results
 are recorded with that suite. Only this entry and the status line
-changed; no Go file, so the Go checks were not rerun. Written by a Claude
-session on `claude/pentest-2026-11-28`; rounds 2 and 3 of AGENTS.md and
-the owner's merge are owed.
+changed; no Go file, so the Go checks were not rerun.
+
+**Merge without a review round (owner, 2026-11-28: "merge the relay branch
+and push").** The owner had `main` fast-forwarded to
+`claude/pentest-2026-11-28` and pushed. A Claude session wrote `d0d8cb8`
+and this record, and no other agent read them. They change only this plan:
+the status line and the entry above.
 
 Primary references consulted for the review on 2026-10-15:
 
